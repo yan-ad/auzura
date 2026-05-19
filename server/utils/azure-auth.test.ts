@@ -1,6 +1,15 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { buildAzureAuthSession, buildAzureDevOpsOAuthConfig, getAzureAuthorizationHeader, getAzureDevOpsConnectionDataUrl } from './azure-auth'
+import { useSession } from 'h3'
+import { buildAzureAuthSession, buildAzureDevOpsOAuthConfig, getAzureAuthorizationHeader, getAzureDevOpsConnectionDataUrl, getAzureOAuthAccessToken } from './azure-auth'
+
+vi.mock('h3', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('h3')>()
+  return {
+    ...actual,
+    useSession: vi.fn()
+  }
+})
 
 describe('buildAzureDevOpsOAuthConfig', () => {
   it('uses the production auzura.vercel.app callback when no redirect URI is configured', () => {
@@ -57,5 +66,19 @@ describe('getAzureAuthorizationHeader', () => {
 
   it('requires an OAuth access token instead of falling back to PAT basic auth', () => {
     expect(() => getAzureAuthorizationHeader()).toThrow('Sign in with Microsoft')
+  })
+})
+
+describe('getAzureOAuthAccessToken', () => {
+  beforeEach(() => {
+    vi.mocked(useSession).mockReset()
+  })
+
+  it('reads the secure access token from the sealed auth session cookie', async () => {
+    vi.mocked(useSession).mockResolvedValueOnce({
+      data: { secure: { azureAccessToken: 'oauth-token' } }
+    } as unknown as Awaited<ReturnType<typeof useSession>>)
+
+    await expect(getAzureOAuthAccessToken({} as Parameters<typeof getAzureOAuthAccessToken>[0])).resolves.toBe('oauth-token')
   })
 })
