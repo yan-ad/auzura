@@ -1,7 +1,11 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { createError } from 'h3'
 import type { AzureProject, AzureWorkItem, AzureWorkItemInput } from '../../app/types/azure-devops'
 
 const API_VERSION = '7.1'
+const azureOrganizationStorage = new AsyncLocalStorage<string>()
+
+type AzureQuery = Record<string, unknown>
 
 type JsonPatchOperation = {
   op: 'add' | 'replace' | 'remove'
@@ -101,25 +105,51 @@ function getFieldNumber(fields: Record<string, unknown>, key: string): number | 
   return Number.isFinite(number) ? number : undefined
 }
 
-export function getAzureConfig(): { organization: string, token: string } {
-  const config = useRuntimeConfig()
-  const organization = String(
+function getRuntimeConfig() {
+  const runtimeGlobal = globalThis as typeof globalThis & { useRuntimeConfig?: () => { azureDevOpsOrganization?: unknown, azureDevOpsToken?: unknown, public?: { azureDevOpsOrganization?: unknown } } }
+  return typeof runtimeGlobal.useRuntimeConfig === 'function'
+    ? runtimeGlobal.useRuntimeConfig()
+    : { public: {} }
+}
+
+function getConfiguredOrganization(): string {
+  const config = getRuntimeConfig()
+  return String(
     config.azureDevOpsOrganization
-    || config.public.azureDevOpsOrganization
+    || config.public?.azureDevOpsOrganization
     || process.env.NUXT_AZURE_DEVOPS_ORGANIZATION
     || process.env.NUXT_PUBLIC_AZURE_DEVOPS_ORGANIZATION
     || process.env.AZURE_DEVOPS_ORGANIZATION
     || ''
   ).trim()
-  const token = String(
+}
+
+function getAzureToken(): string {
+  const config = getRuntimeConfig()
+  return String(
     config.azureDevOpsToken
     || process.env.NUXT_AZURE_DEVOPS_TOKEN
     || process.env.AZURE_DEVOPS_TOKEN
     || ''
   ).trim()
+}
+
+export function getAzureOrganizationFromQuery(query: AzureQuery): string {
+  const value = query.organization || query.org || azureOrganizationStorage.getStore() || getConfiguredOrganization()
+  return Array.isArray(value) ? String(value[0] || '').trim() : String(value || '').trim()
+}
+
+export async function withAzureOrganization<T>(organization: string | undefined, callback: () => Promise<T>): Promise<T> {
+  const normalized = organization?.trim()
+  return normalized ? await azureOrganizationStorage.run(normalized, callback) : await callback()
+}
+
+export function getAzureConfig(): { organization: string, token: string } {
+  const organization = azureOrganizationStorage.getStore() || getConfiguredOrganization()
+  const token = getAzureToken()
 
   const missing = [
-    !organization ? 'NUXT_PUBLIC_AZURE_DEVOPS_ORGANIZATION or AZURE_DEVOPS_ORGANIZATION' : '',
+    !organization ? 'organization query parameter, NUXT_PUBLIC_AZURE_DEVOPS_ORGANIZATION, or AZURE_DEVOPS_ORGANIZATION' : '',
     !token ? 'NUXT_AZURE_DEVOPS_TOKEN or AZURE_DEVOPS_TOKEN' : ''
   ].filter(Boolean)
 

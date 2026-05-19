@@ -4,6 +4,7 @@ import type { AzureProject, AzureWorkItem } from '~/types/azure-devops'
 const toast = useToast()
 const states = ['New', 'Active', 'Resolved', 'Closed']
 const workItemTypes = ['User Story', 'Task', 'Bug']
+const selectedOrganization = useCookie<string>('auzura:organization', { default: () => '' })
 const selectedProject = useCookie<string>('auzura:selected-project', { default: () => '' })
 const selectedView = ref<'assigned' | 'board'>('assigned')
 const selectedItemId = ref<number | null>(null)
@@ -17,11 +18,23 @@ const form = reactive({
   tags: 'auzura'
 })
 
-const { data: projectsData, pending: projectsPending, error: projectsError } = await useFetch<{ projects: AzureProject[] }>('/api/azure/projects')
+const activeOrganization = computed(() => selectedOrganization.value.trim())
+const organizationQuery = computed(() => activeOrganization.value ? `organization=${encodeURIComponent(activeOrganization.value)}` : '')
+
+const projectsUrl = computed(() => `/api/azure/projects${organizationQuery.value ? `?${organizationQuery.value}` : ''}`)
+const { data: projectsData, pending: projectsPending, error: projectsError, refresh: refreshProjects } = await useFetch<{ projects: AzureProject[] }>(projectsUrl, {
+  immediate: false,
+  watch: false
+})
 
 const projects = computed(() => projectsData.value?.projects ?? [])
 const projectOptions = computed(() => projects.value.map((project) => project.name))
 const activeProject = computed(() => selectedProject.value || projectOptions.value[0] || '')
+
+watch(activeOrganization, async () => {
+  selectedProject.value = ''
+  await refreshProjects()
+}, { immediate: true })
 
 watch(projectOptions, (options) => {
   if (!selectedProject.value && options[0]) {
@@ -33,10 +46,14 @@ watch(projectOptions, (options) => {
   }
 }, { immediate: true })
 
-const boardUrl = computed(() => `/api/azure/work-items?project=${encodeURIComponent(activeProject.value)}`)
-const assignedUrl = computed(() => `/api/azure/work-items/assigned?project=${encodeURIComponent(activeProject.value)}`)
+function withOrganizationQuery(path: string) {
+  return `${path}${organizationQuery.value ? `&${organizationQuery.value}` : ''}`
+}
+
+const boardUrl = computed(() => withOrganizationQuery(`/api/azure/work-items?project=${encodeURIComponent(activeProject.value)}`))
+const assignedUrl = computed(() => withOrganizationQuery(`/api/azure/work-items/assigned?project=${encodeURIComponent(activeProject.value)}`))
 const detailUrl = computed(() => selectedItemId.value && activeProject.value
-  ? `/api/azure/work-items/${selectedItemId.value}?project=${encodeURIComponent(activeProject.value)}`
+  ? withOrganizationQuery(`/api/azure/work-items/${selectedItemId.value}?project=${encodeURIComponent(activeProject.value)}`)
   : null)
 
 const { data: boardData, pending: boardPending, error: boardError, refresh: refreshBoard } = await useFetch<{ items: AzureWorkItem[] }>(boardUrl, {
@@ -104,7 +121,7 @@ async function createItem() {
     return
   }
 
-  await $fetch(`/api/azure/work-items?project=${encodeURIComponent(activeProject.value)}`, {
+  await $fetch(withOrganizationQuery(`/api/azure/work-items?project=${encodeURIComponent(activeProject.value)}`), {
     method: 'POST',
     body: {
       title: form.title,
@@ -124,7 +141,7 @@ async function createItem() {
 async function moveItem(item: AzureWorkItem, state: string) {
   if (!activeProject.value || item.state === state) return
 
-  await $fetch(`/api/azure/work-items/${item.id}/state?project=${encodeURIComponent(activeProject.value)}`, {
+  await $fetch(withOrganizationQuery(`/api/azure/work-items/${item.id}/state?project=${encodeURIComponent(activeProject.value)}`), {
     method: 'PATCH',
     body: { state }
   })
@@ -162,6 +179,13 @@ async function openDetail(item: AzureWorkItem) {
               :description="projectsError.message"
             />
 
+            <UFormField label="Organization" help="Override Azure DevOps org slug. Falls back to env when empty.">
+              <UInput
+                v-model="selectedOrganization"
+                placeholder="your-azure-org"
+              />
+            </UFormField>
+
             <UFormField label="Project">
               <USelectMenu
                 v-model="selectedProject"
@@ -198,7 +222,9 @@ async function openDetail(item: AzureWorkItem) {
             </div>
 
             <div class="rounded-lg border border-white/10 bg-slate-950/50 p-3 text-sm text-slate-300">
-              <p class="text-xs uppercase tracking-wide text-slate-500">Active project</p>
+              <p class="text-xs uppercase tracking-wide text-slate-500">Active organization</p>
+              <p class="mt-1 font-medium text-white">{{ activeOrganization || 'Env default' }}</p>
+              <p class="mt-3 text-xs uppercase tracking-wide text-slate-500">Active project</p>
               <p class="mt-1 font-medium text-white">{{ activeProject || 'No project selected' }}</p>
             </div>
 
