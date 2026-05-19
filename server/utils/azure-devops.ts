@@ -58,15 +58,23 @@ function escapeWiqlString(value: string): string {
   return value.replaceAll("'", "''")
 }
 
-export function buildAssignedToMeWiqlQueries(project: string, candidates: string[]): string[] {
-  return candidates.map((candidate) => `
-              SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType], [System.AssignedTo], [System.ChangedDate], [System.Tags]
-              FROM WorkItems
-              WHERE [System.TeamProject] = '${escapeWiqlString(project)}'
-                AND [System.AssignedTo] = '${escapeWiqlString(candidate)}'
-                AND [System.State] <> 'Removed'
-              ORDER BY [System.ChangedDate] DESC
-            `)
+export function buildWorkItemsWiql(options: { excludeRemoved?: boolean } = {}): string {
+  const removedClause = options.excludeRemoved ? " AND [System.State] <> 'Removed'" : ''
+  return `
+          SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType], [System.AssignedTo], [System.ChangedDate], [System.Tags]
+          FROM WorkItems
+          WHERE [System.TeamProject] = @project${removedClause}
+          ORDER BY [System.ChangedDate] DESC
+        `
+}
+
+export function isAssignedToCandidate(item: Pick<AzureWorkItem, 'assignedTo' | 'assignedToUniqueName'>, candidates: string[]): boolean {
+  const assignees = [item.assignedToUniqueName, item.assignedTo]
+    .map((value) => value?.trim().toLowerCase())
+    .filter((value): value is string => Boolean(value))
+  const normalizedCandidates = candidates.map((value) => value.trim().toLowerCase())
+
+  return assignees.some((assignee) => normalizedCandidates.includes(assignee))
 }
 
 function getAzureErrorMessage(error: unknown): string {
@@ -325,12 +333,7 @@ export async function listRecentWorkItems(projectInput?: string): Promise<AzureW
     {
       method: 'POST',
       body: {
-        query: `
-          SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType], [System.AssignedTo], [System.ChangedDate], [System.Tags]
-          FROM WorkItems
-          WHERE [System.TeamProject] = '${escapeWiqlString(project)}'
-          ORDER BY [System.ChangedDate] DESC
-        `
+        query: buildWorkItemsWiql()
       }
     }
   )
@@ -353,29 +356,16 @@ export async function listAssignedToMeWorkItems(projectInput?: string): Promise<
     })
   }
 
-  const queries = buildAssignedToMeWiqlQueries(project, candidates)
-  let lastError: unknown
-
-  for (const query of queries) {
-    try {
-      const wiql = await azureFetch<{ workItems: Array<{ id: number }> }>(
-        getProjectUrl(organization, project, `wit/wiql?api-version=${API_VERSION}`),
-        {
-          method: 'POST',
-          body: { query }
-        }
-      )
-
-      return await fetchWorkItemsByIds(project, wiql.workItems.slice(0, 100).map((item) => item.id))
-    } catch (error) {
-      lastError = error
+  const wiql = await azureFetch<{ workItems: Array<{ id: number }> }>(
+    getProjectUrl(organization, project, `wit/wiql?api-version=${API_VERSION}`),
+    {
+      method: 'POST',
+      body: { query: buildWorkItemsWiql({ excludeRemoved: true }) }
     }
-  }
+  )
 
-  throw createError({
-    statusCode: 400,
-    statusMessage: `Could not query assigned work items for ${candidates.join(' / ')}. ${getAzureErrorMessage(lastError)}`
-  })
+  const items = await fetchWorkItemsByIds(project, wiql.workItems.slice(0, 500).map((item) => item.id))
+  return items.filter((item) => isAssignedToCandidate(item, candidates)).slice(0, 100)
 }
 
 export async function getWorkItem(projectInput: string | undefined, id: number): Promise<AzureWorkItem> {
