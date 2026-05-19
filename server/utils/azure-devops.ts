@@ -145,7 +145,7 @@ function getFieldNumber(fields: Record<string, unknown>, key: string): number | 
 }
 
 function getRuntimeConfig() {
-  const runtimeGlobal = globalThis as typeof globalThis & { useRuntimeConfig?: () => { azureDevOpsOrganization?: unknown, azureDevOpsToken?: unknown, public?: { azureDevOpsOrganization?: unknown } } }
+  const runtimeGlobal = globalThis as typeof globalThis & { useRuntimeConfig?: () => { azureDevOpsOrganization?: unknown, public?: { azureDevOpsOrganization?: unknown } } }
   return typeof runtimeGlobal.useRuntimeConfig === 'function'
     ? runtimeGlobal.useRuntimeConfig()
     : { public: {} }
@@ -163,16 +163,6 @@ function getConfiguredOrganization(): string {
   ).trim()
 }
 
-function getAzureToken(): string {
-  const config = getRuntimeConfig()
-  return String(
-    config.azureDevOpsToken
-    || process.env.NUXT_AZURE_DEVOPS_TOKEN
-    || process.env.AZURE_DEVOPS_TOKEN
-    || ''
-  ).trim()
-}
-
 export function getAzureOrganizationFromQuery(query: AzureQuery): string {
   const value = query.organization || query.org || azureOrganizationStorage.getStore() || getConfiguredOrganization()
   return Array.isArray(value) ? String(value[0] || '').trim() : String(value || '').trim()
@@ -184,23 +174,17 @@ export async function withAzureOrganization<T>(organization: string | undefined,
   return normalized ? await azureOrganizationStorage.run(normalized, runWithEvent) : await runWithEvent()
 }
 
-export function getAzureConfig(): { organization: string, token: string } {
+export function getAzureConfig(): { organization: string } {
   const organization = azureOrganizationStorage.getStore() || getConfiguredOrganization()
-  const token = getAzureToken()
 
-  const missing = [
-    !organization ? 'organization query parameter, NUXT_PUBLIC_AZURE_DEVOPS_ORGANIZATION, or AZURE_DEVOPS_ORGANIZATION' : '',
-    !token ? 'NUXT_AZURE_DEVOPS_TOKEN or AZURE_DEVOPS_TOKEN' : ''
-  ].filter(Boolean)
-
-  if (missing.length) {
+  if (!organization) {
     throw createError({
       statusCode: 500,
-      statusMessage: `Azure DevOps is not configured. Missing: ${missing.join(', ')}.`
+      statusMessage: 'Azure DevOps organization is not configured. Set the organization query parameter, NUXT_PUBLIC_AZURE_DEVOPS_ORGANIZATION, or AZURE_DEVOPS_ORGANIZATION.'
     })
   }
 
-  return { organization, token }
+  return { organization }
 }
 
 function getOrganizationUrl(organization: string, path: string): string {
@@ -213,14 +197,13 @@ function getProjectUrl(organization: string, project: string, path: string): str
 }
 
 async function azureFetch<T>(url: string, init: Parameters<typeof $fetch>[1] = {}): Promise<T> {
-  const { token } = getAzureConfig()
   const accessToken = await getAzureOAuthAccessToken(azureEventStorage.getStore())
 
   try {
     const response = await $fetch<T>(url, {
       ...init,
       headers: {
-        Authorization: getAzureAuthorizationHeader({ accessToken, pat: token }),
+        Authorization: getAzureAuthorizationHeader(accessToken),
         Accept: 'application/json',
         ...init.headers
       }

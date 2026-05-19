@@ -1,13 +1,16 @@
 import { createError, type H3Event } from 'h3'
 
 type RuntimeOAuthConfig = {
+  azureDevOpsOrganization?: unknown
   azureTenantId?: unknown
   azureClientId?: unknown
   azureClientSecret?: unknown
   azureRedirectUri?: unknown
+  public?: { azureDevOpsOrganization?: unknown }
 }
 
 export type AzureDevOpsOAuthConfig = {
+  organization: string
   tenantId: string
   clientId: string
   clientSecret: string
@@ -41,18 +44,21 @@ function getString(value: unknown): string {
 }
 
 export function buildAzureDevOpsOAuthConfig(overrides: Partial<{
+  organization: string
   tenantId: string
   clientId: string
   clientSecret: string
   redirectUri: string
 }> = {}): AzureDevOpsOAuthConfig {
   const config = getRuntimeConfig()
+  const organization = getString(overrides.organization || config.azureDevOpsOrganization || config.public?.azureDevOpsOrganization || process.env.AZURE_DEVOPS_ORGANIZATION || process.env.NUXT_AZURE_DEVOPS_ORGANIZATION || process.env.NUXT_PUBLIC_AZURE_DEVOPS_ORGANIZATION)
   const tenantId = getString(overrides.tenantId || config.azureTenantId || process.env.AZURE_TENANT_ID || process.env.NUXT_AZURE_TENANT_ID)
   const clientId = getString(overrides.clientId || config.azureClientId || process.env.AZURE_CLIENT_ID || process.env.NUXT_AZURE_CLIENT_ID)
   const clientSecret = getString(overrides.clientSecret || config.azureClientSecret || process.env.AZURE_CLIENT_SECRET || process.env.NUXT_AZURE_CLIENT_SECRET)
   const redirectUri = getString(overrides.redirectUri || config.azureRedirectUri || process.env.AZURE_REDIRECT_URI || process.env.NUXT_AZURE_REDIRECT_URI || AZURE_DEVOPS_DEFAULT_REDIRECT_URI)
 
   const missing = [
+    !organization ? 'AZURE_DEVOPS_ORGANIZATION' : '',
     !tenantId ? 'AZURE_TENANT_ID' : '',
     !clientId ? 'AZURE_CLIENT_ID' : '',
     !clientSecret ? 'AZURE_CLIENT_SECRET' : ''
@@ -66,6 +72,7 @@ export function buildAzureDevOpsOAuthConfig(overrides: Partial<{
   }
 
   return {
+    organization,
     tenantId,
     clientId,
     clientSecret,
@@ -76,16 +83,13 @@ export function buildAzureDevOpsOAuthConfig(overrides: Partial<{
   }
 }
 
-export function getAzureAuthorizationHeader(input: { accessToken?: string, pat?: string }): string {
-  const accessToken = input.accessToken?.trim()
-  if (accessToken) return `Bearer ${accessToken}`
-
-  const pat = input.pat?.trim()
-  if (pat) return `Basic ${Buffer.from(`:${pat}`).toString('base64')}`
+export function getAzureAuthorizationHeader(accessToken?: string): string {
+  const token = accessToken?.trim()
+  if (token) return `Bearer ${token}`
 
   throw createError({
-    statusCode: 500,
-    statusMessage: 'Azure DevOps authentication is not configured. Sign in with Microsoft or set AZURE_DEVOPS_TOKEN.'
+    statusCode: 401,
+    statusMessage: 'Sign in with Microsoft to access Azure DevOps.'
   })
 }
 

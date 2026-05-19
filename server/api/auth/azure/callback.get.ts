@@ -48,7 +48,7 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 401, statusMessage: tokens.error_description || tokens.error || 'Azure OAuth token exchange failed.' })
   }
 
-  const connectionData = await $fetch<ConnectionDataResponse>('https://dev.azure.com/_apis/connectionData?api-version=7.1', {
+  const connectionData = await $fetch<ConnectionDataResponse>(`https://dev.azure.com/${config.organization}/_apis/connectionData?api-version=7.1`, {
     headers: { Authorization: `Bearer ${tokens.access_token}`, Accept: 'application/json' }
   })
   const authenticatedUser = connectionData.authenticatedUser

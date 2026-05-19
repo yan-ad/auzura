@@ -184,7 +184,7 @@ async function openDetail(item: AzureWorkItem) {
           <div class="space-y-5">
             <div class="rounded-lg border border-white/10 bg-slate-950/50 p-3">
               <p class="text-xs uppercase tracking-wide text-slate-500">Microsoft auth</p>
-              <p class="mt-1 text-sm text-white">{{ loggedIn ? (user?.displayName || user?.email || 'Signed in') : 'Using PAT fallback' }}</p>
+              <p class="mt-1 text-sm text-white">{{ loggedIn ? (user?.displayName || user?.email || 'Signed in') : 'Sign in required' }}</p>
               <p class="mt-1 text-xs text-slate-400">OAuth callback: auzura.vercel.app</p>
               <UButton v-if="!loggedIn" icon="i-lucide-log-in" color="primary" variant="soft" block class="mt-3" @click="loginWithMicrosoft">
                 Sign in with Microsoft
@@ -279,11 +279,11 @@ async function openDetail(item: AzureWorkItem) {
         </section>
 
         <UAlert
-          v-if="selectedView === 'assigned' && !loggedIn"
+          v-if="!loggedIn"
           color="warning"
           variant="soft"
-          title="Assigned-to-me works best after Microsoft sign-in"
-          description="Without OAuth the app falls back to the server PAT, so “me” can resolve to the PAT owner instead of the current dashboard user."
+          title="Microsoft sign-in required"
+          description="Auzura now uses full OAuth only. Sign in with Microsoft before loading Azure DevOps content."
         />
 
         <UAlert
@@ -358,7 +358,7 @@ async function openDetail(item: AzureWorkItem) {
             <template #header>
               <div>
                 <h2 class="text-lg font-semibold text-white">Quick create</h2>
-                <p class="text-sm text-slate-400">Creates inside <span class="font-medium text-white">{{ activeProject || 'selected project' }}</span>. PAT stays server-side.</p>
+                <p class="text-sm text-slate-400">Creates inside <span class="font-medium text-white">{{ activeProject || 'selected project' }}</span> using your Microsoft OAuth session.</p>
               </div>
             </template>
 

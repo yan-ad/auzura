@@ -5,6 +5,7 @@ import { buildAzureDevOpsOAuthConfig, getAzureAuthorizationHeader } from './azur
 describe('buildAzureDevOpsOAuthConfig', () => {
   it('uses the production auzura.vercel.app callback when no redirect URI is configured', () => {
     const config = buildAzureDevOpsOAuthConfig({
+      organization: 'org',
       tenantId: 'tenant-id',
       clientId: 'client-id',
       clientSecret: 'client-secret'
@@ -15,6 +16,7 @@ describe('buildAzureDevOpsOAuthConfig', () => {
 
   it('requests Azure DevOps delegated scope plus offline access for refresh tokens', () => {
     const config = buildAzureDevOpsOAuthConfig({
+      organization: 'org',
       tenantId: 'tenant-id',
       clientId: 'client-id',
       clientSecret: 'client-secret',
@@ -27,13 +29,11 @@ describe('buildAzureDevOpsOAuthConfig', () => {
 })
 
 describe('getAzureAuthorizationHeader', () => {
-  it('prefers OAuth bearer access tokens over PAT basic auth', () => {
-    expect(getAzureAuthorizationHeader({ accessToken: 'oauth-token', pat: 'pat-token' })).toBe('Bearer oauth-token')
+  it('builds a bearer header from an OAuth access token', () => {
+    expect(getAzureAuthorizationHeader('oauth-token')).toBe('Bearer oauth-token')
   })
 
-  it('falls back to PAT basic auth when no OAuth token exists', () => {
-    const header = getAzureAuthorizationHeader({ pat: 'pat-token' })
-
-    expect(header).toBe(`Basic ${Buffer.from(':pat-token').toString('base64')}`)
+  it('requires an OAuth access token instead of falling back to PAT basic auth', () => {
+    expect(() => getAzureAuthorizationHeader()).toThrow('Sign in with Microsoft')
   })
 })
