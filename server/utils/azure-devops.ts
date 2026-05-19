@@ -40,6 +40,28 @@ type AzureConnectionDataResponse = {
   }
 }
 
+type FetchErrorWithData = Error & {
+  status?: number
+  statusCode?: number
+  data?: {
+    message?: string
+    value?: { Message?: string }
+    typeName?: string
+  }
+}
+
+function escapeWiqlString(value: string): string {
+  return value.replaceAll("'", "''")
+}
+
+function getAzureErrorMessage(error: unknown): string {
+  const fetchError = error as FetchErrorWithData
+  return fetchError.data?.message
+    || fetchError.data?.value?.Message
+    || fetchError.message
+    || 'Azure DevOps request failed.'
+}
+
 function getIdentityDisplayName(value: unknown): string | undefined {
   if (typeof value === 'object' && value) {
     const identity = value as { displayName?: string, uniqueName?: string }
@@ -115,16 +137,25 @@ function getProjectUrl(organization: string, project: string, path: string): str
 
 async function azureFetch<T>(url: string, init: Parameters<typeof $fetch>[1] = {}): Promise<T> {
   const { token } = getAzureConfig()
-  const response = await $fetch<T>(url, {
-    ...init,
-    headers: {
-      Authorization: getAuthHeader(token),
-      Accept: 'application/json',
-      ...init.headers
-    }
-  })
 
-  return response as T
+  try {
+    const response = await $fetch<T>(url, {
+      ...init,
+      headers: {
+        Authorization: getAuthHeader(token),
+        Accept: 'application/json',
+        ...init.headers
+      }
+    })
+
+    return response as T
+  } catch (error) {
+    const fetchError = error as FetchErrorWithData
+    throw createError({
+      statusCode: fetchError.statusCode || fetchError.status || 500,
+      statusMessage: getAzureErrorMessage(error)
+    })
+  }
 }
 
 export function normalizeProject(project: AzureProjectResponse): AzureProject {
@@ -256,7 +287,7 @@ export async function listRecentWorkItems(projectInput?: string): Promise<AzureW
         query: `
           SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType], [System.AssignedTo], [System.ChangedDate], [System.Tags]
           FROM WorkItems
-          WHERE [System.TeamProject] = '${project.replaceAll("'", "''")}'
+          WHERE [System.TeamProject] = '${escapeWiqlString(project)}'
           ORDER BY [System.ChangedDate] DESC
         `
       }
@@ -270,33 +301,52 @@ export async function listAssignedToMeWorkItems(projectInput?: string): Promise<
   const project = assertProject(projectInput)
   const { organization } = getAzureConfig()
   const currentUser = await getCurrentUser()
-  const assignee = currentUser.email || currentUser.displayName
+  const candidates = [currentUser.email, currentUser.displayName]
+    .map((value) => value?.trim())
+    .filter((value): value is string => Boolean(value))
 
-  if (!assignee) {
+  if (!candidates.length) {
     throw createError({
       statusCode: 500,
       statusMessage: 'Could not determine the current Azure DevOps user for assigned-to-me filtering.'
     })
   }
 
-  const wiql = await azureFetch<{ workItems: Array<{ id: number }> }>(
-    getProjectUrl(organization, project, `wit/wiql?api-version=${API_VERSION}`),
-    {
-      method: 'POST',
-      body: {
-        query: `
-          SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType], [System.AssignedTo], [System.ChangedDate], [System.Tags]
-          FROM WorkItems
-          WHERE [System.TeamProject] = '${project.replaceAll("'", "''")}'
-            AND [System.AssignedTo] = @Me
-            AND [System.State] <> 'Removed'
-          ORDER BY [System.ChangedDate] DESC
-        `
-      }
-    }
-  )
+  const assigneeFilters = [
+    '[System.AssignedTo] = @Me',
+    ...candidates.map((candidate) => `[System.AssignedTo] = '${escapeWiqlString(candidate)}'`)
+  ]
+  let lastError: unknown
 
-  return await fetchWorkItemsByIds(project, wiql.workItems.slice(0, 100).map((item) => item.id))
+  for (const assigneeFilter of assigneeFilters) {
+    try {
+      const wiql = await azureFetch<{ workItems: Array<{ id: number }> }>(
+        getProjectUrl(organization, project, `wit/wiql?api-version=${API_VERSION}`),
+        {
+          method: 'POST',
+          body: {
+            query: `
+              SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType], [System.AssignedTo], [System.ChangedDate], [System.Tags]
+              FROM WorkItems
+              WHERE [System.TeamProject] = '${escapeWiqlString(project)}'
+                AND ${assigneeFilter}
+                AND [System.State] <> 'Removed'
+              ORDER BY [System.ChangedDate] DESC
+            `
+          }
+        }
+      )
+
+      return await fetchWorkItemsByIds(project, wiql.workItems.slice(0, 100).map((item) => item.id))
+    } catch (error) {
+      lastError = error
+    }
+  }
+
+  throw createError({
+    statusCode: 400,
+    statusMessage: `Could not query assigned work items for ${candidates.join(' / ')}. ${getAzureErrorMessage(lastError)}`
+  })
 }
 
 export async function getWorkItem(projectInput: string | undefined, id: number): Promise<AzureWorkItem> {
