@@ -2,7 +2,8 @@
 
 Auzura is a Nuxt 4 + Nuxt UI 4 Azure DevOps Boards control surface. The first milestone keeps the scope intentionally sharp:
 
-- list the 25 most recently changed work items in a project
+- pick an Azure DevOps project from the sidebar
+- list the 25 most recently changed work items in the selected project
 - create a `Task`, `Bug`, or `User Story`
 - transition a work item between common states
 - keep the Azure DevOps PAT server-side only
@@ -10,16 +11,15 @@ Auzura is a Nuxt 4 + Nuxt UI 4 Azure DevOps Boards control surface. The first mi
 ## Setup
 
 ```bash
-npm install
+bun install
 cp .env.example .env
-npm run dev
+bun run dev
 ```
 
 Fill `.env`:
 
 ```bash
 NUXT_PUBLIC_AZURE_DEVOPS_ORGANIZATION=your-org
-NUXT_PUBLIC_AZURE_DEVOPS_PROJECT=your-project
 NUXT_AZURE_DEVOPS_TOKEN=your-pat
 ```
 
@@ -31,9 +31,10 @@ Azure DevOps Personal Access Tokens should never be exposed to the browser. The 
 
 ## API routes
 
-- `GET /api/azure/work-items` — recent work item snapshot
-- `POST /api/azure/work-items` — create a work item
-- `PATCH /api/azure/work-items/:id/state` — move a work item to another state
+- `GET /api/azure/projects` — list selectable Azure DevOps projects
+- `GET /api/azure/work-items?project=<name>` — recent work item snapshot
+- `POST /api/azure/work-items?project=<name>` — create a work item
+- `PATCH /api/azure/work-items/:id/state?project=<name>` — move a work item to another state
 
 ## Next milestones
 

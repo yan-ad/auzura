@@ -20,3 +20,12 @@ export interface AzureWorkItemInput {
   assignedTo?: string
   tags?: string[]
 }
+
+export interface AzureProject {
+  id: string
+  name: string
+  description?: string
+  url?: string
+  state?: string
+  visibility?: string
+}

@@ -1,3 +1,4 @@
+import { getQuery } from 'h3'
 import { z } from 'zod'
 import { createWorkItem } from '../../../utils/azure-devops'
 
@@ -10,8 +11,10 @@ const schema = z.object({
 })
 
 export default defineEventHandler(async (event): Promise<{ item: Awaited<ReturnType<typeof createWorkItem>> }> => {
+  const query = getQuery(event)
+  const project = typeof query.project === 'string' ? query.project : undefined
   const body = await readValidatedBody(event, schema.parse)
-  const item = await createWorkItem(body)
+  const item = await createWorkItem(project, body)
 
   return { item }
 })

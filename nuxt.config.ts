@@ -6,8 +6,7 @@ export default defineNuxtConfig({
   runtimeConfig: {
     azureDevOpsToken: '',
     public: {
-      azureDevOpsOrganization: '',
-      azureDevOpsProject: ''
+      azureDevOpsOrganization: ''
     }
   },
   future: {
