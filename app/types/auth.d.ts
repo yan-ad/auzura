@@ -6,7 +6,6 @@ declare module '#auth-utils' {
 
   interface SecureSessionData {
     azureAccessToken?: string
-    azureRefreshToken?: string
     azureExpiresAt?: number
   }
 }

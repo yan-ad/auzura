@@ -1,5 +1,5 @@
 import { createError, getQuery, sendRedirect } from 'h3'
-import { buildAzureDevOpsOAuthConfig, getAzureDevOpsConnectionDataUrl } from '../../../utils/azure-auth'
+import { buildAzureAuthSession, buildAzureDevOpsOAuthConfig, getAzureDevOpsConnectionDataUrl } from '../../../utils/azure-auth'
 
 type TokenResponse = {
   access_token?: string
@@ -54,17 +54,12 @@ export default defineEventHandler(async (event) => {
   const authenticatedUser = connectionData.authenticatedUser
   const email = authenticatedUser?.properties?.Mail?.$value || authenticatedUser?.properties?.Account?.$value
 
-  await setUserSession(event, {
-    user: {
-      displayName: authenticatedUser?.providerDisplayName || email || 'Azure DevOps user',
-      email
-    },
-    secure: {
-      azureAccessToken: tokens.access_token,
-      azureRefreshToken: tokens.refresh_token,
-      azureExpiresAt: Date.now() + ((tokens.expires_in || 3600) * 1000)
-    }
-  })
+  await setUserSession(event, buildAzureAuthSession({
+    accessToken: tokens.access_token,
+    expiresIn: tokens.expires_in,
+    displayName: authenticatedUser?.providerDisplayName,
+    email
+  }))
 
   return sendRedirect(event, typeof query.state === 'string' && query.state.startsWith('/') ? query.state : '/')
 })

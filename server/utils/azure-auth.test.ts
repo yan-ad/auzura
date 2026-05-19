@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildAzureDevOpsOAuthConfig, getAzureAuthorizationHeader, getAzureDevOpsConnectionDataUrl } from './azure-auth'
+import { buildAzureAuthSession, buildAzureDevOpsOAuthConfig, getAzureAuthorizationHeader, getAzureDevOpsConnectionDataUrl } from './azure-auth'
 
 describe('buildAzureDevOpsOAuthConfig', () => {
   it('uses the production auzura.vercel.app callback when no redirect URI is configured', () => {
@@ -31,6 +31,22 @@ describe('buildAzureDevOpsOAuthConfig', () => {
 describe('getAzureDevOpsConnectionDataUrl', () => {
   it('uses the Azure DevOps connectionData preview API version', () => {
     expect(getAzureDevOpsConnectionDataUrl('KiriminAja2026')).toBe('https://dev.azure.com/KiriminAja2026/_apis/connectionData?api-version=7.0-preview')
+  })
+})
+
+describe('buildAzureAuthSession', () => {
+  it('keeps the sealed cookie small by storing only the access token and user identity', () => {
+    const session = buildAzureAuthSession({
+      accessToken: 'access-token',
+      expiresIn: 3600,
+      displayName: 'Yan Aditia',
+      email: 'yan@example.com'
+    })
+
+    expect(session.user).toEqual({ displayName: 'Yan Aditia', email: 'yan@example.com' })
+    expect(session.secure.azureAccessToken).toBe('access-token')
+    expect(session.secure.azureExpiresAt).toBeGreaterThan(Date.now())
+    expect(session.secure).not.toHaveProperty('azureRefreshToken')
   })
 })
 

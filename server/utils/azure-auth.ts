@@ -27,8 +27,27 @@ export type AzureAuthSessionUser = {
 
 export type AzureAuthSessionSecure = {
   azureAccessToken?: string
-  azureRefreshToken?: string
   azureExpiresAt?: number
+}
+
+type AzureSessionInput = {
+  accessToken: string
+  expiresIn?: number
+  displayName?: string
+  email?: string
+}
+
+export function buildAzureAuthSession(input: AzureSessionInput): { user: AzureAuthSessionUser, secure: AzureAuthSessionSecure } {
+  return {
+    user: {
+      displayName: input.displayName || input.email || 'Azure DevOps user',
+      email: input.email
+    },
+    secure: {
+      azureAccessToken: input.accessToken,
+      azureExpiresAt: Date.now() + ((input.expiresIn || 3600) * 1000)
+    }
+  }
 }
 
 export const AZURE_DEVOPS_RESOURCE_ID = '499b84ac-1321-427f-aa17-267ca6975798'
