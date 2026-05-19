@@ -1,15 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { useSession } from 'h3'
 import { buildAzureAuthSession, buildAzureDevOpsOAuthConfig, getAzureAuthorizationHeader, getAzureDevOpsConnectionDataUrl, getAzureOAuthAccessToken } from './azure-auth'
-
-vi.mock('h3', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('h3')>()
-  return {
-    ...actual,
-    useSession: vi.fn()
-  }
-})
 
 describe('buildAzureDevOpsOAuthConfig', () => {
   it('uses the production auzura.vercel.app callback when no redirect URI is configured', () => {
@@ -71,13 +62,13 @@ describe('getAzureAuthorizationHeader', () => {
 
 describe('getAzureOAuthAccessToken', () => {
   beforeEach(() => {
-    vi.mocked(useSession).mockReset()
+    vi.unstubAllGlobals()
   })
 
-  it('reads the secure access token from the sealed auth session cookie', async () => {
-    vi.mocked(useSession).mockResolvedValueOnce({
-      data: { secure: { azureAccessToken: 'oauth-token' } }
-    } as unknown as Awaited<ReturnType<typeof useSession>>)
+  it('reads the secure access token from the Nuxt auth session helper', async () => {
+    vi.stubGlobal('getUserSession', vi.fn().mockResolvedValue({
+      secure: { azureAccessToken: 'oauth-token' }
+    }))
 
     await expect(getAzureOAuthAccessToken({} as Parameters<typeof getAzureOAuthAccessToken>[0])).resolves.toBe('oauth-token')
   })

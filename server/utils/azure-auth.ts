@@ -1,4 +1,4 @@
-import { createError, type H3Event, type SessionConfig, useSession } from 'h3'
+import { createError, type H3Event } from 'h3'
 
 type RuntimeOAuthConfig = {
   azureDevOpsOrganization?: unknown
@@ -117,23 +117,9 @@ export function getAzureAuthorizationHeader(accessToken?: string): string {
   })
 }
 
-function getSessionRuntimeConfig(): { session?: Partial<SessionConfig>, nitro?: { envPrefix?: string } } {
-  const runtimeGlobal = globalThis as typeof globalThis & { useRuntimeConfig?: (event?: H3Event) => { session?: Partial<SessionConfig>, nitro?: { envPrefix?: string } } }
-  return typeof runtimeGlobal.useRuntimeConfig === 'function' ? runtimeGlobal.useRuntimeConfig() : {}
-}
-
-function getAzureSessionConfig(): SessionConfig {
-  const config = getSessionRuntimeConfig()
-  const envSessionPassword = `${config.nitro?.envPrefix || 'NUXT_'}SESSION_PASSWORD`
-  return {
-    ...config.session,
-    password: config.session?.password || process.env[envSessionPassword] || ''
-  }
-}
-
 export async function getAzureOAuthAccessToken(event?: H3Event): Promise<string | undefined> {
   if (!event) return undefined
 
-  const session = await useSession<{ secure?: AzureAuthSessionSecure }>(event, getAzureSessionConfig())
-  return session.data.secure?.azureAccessToken
+  const session = await getUserSession(event)
+  return session.secure?.azureAccessToken
 }
