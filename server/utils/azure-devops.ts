@@ -54,6 +54,17 @@ function escapeWiqlString(value: string): string {
   return value.replaceAll("'", "''")
 }
 
+export function buildAssignedToMeWiqlQueries(project: string, candidates: string[]): string[] {
+  return candidates.map((candidate) => `
+              SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType], [System.AssignedTo], [System.ChangedDate], [System.Tags]
+              FROM WorkItems
+              WHERE [System.TeamProject] = '${escapeWiqlString(project)}'
+                AND [System.AssignedTo] = '${escapeWiqlString(candidate)}'
+                AND [System.State] <> 'Removed'
+              ORDER BY [System.ChangedDate] DESC
+            `)
+}
+
 function getAzureErrorMessage(error: unknown): string {
   const fetchError = error as FetchErrorWithData
   return fetchError.data?.message
@@ -312,28 +323,16 @@ export async function listAssignedToMeWorkItems(projectInput?: string): Promise<
     })
   }
 
-  const assigneeFilters = [
-    '[System.AssignedTo] = @Me',
-    ...candidates.map((candidate) => `[System.AssignedTo] = '${escapeWiqlString(candidate)}'`)
-  ]
+  const queries = buildAssignedToMeWiqlQueries(project, candidates)
   let lastError: unknown
 
-  for (const assigneeFilter of assigneeFilters) {
+  for (const query of queries) {
     try {
       const wiql = await azureFetch<{ workItems: Array<{ id: number }> }>(
         getProjectUrl(organization, project, `wit/wiql?api-version=${API_VERSION}`),
         {
           method: 'POST',
-          body: {
-            query: `
-              SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType], [System.AssignedTo], [System.ChangedDate], [System.Tags]
-              FROM WorkItems
-              WHERE [System.TeamProject] = '${escapeWiqlString(project)}'
-                AND ${assigneeFilter}
-                AND [System.State] <> 'Removed'
-              ORDER BY [System.ChangedDate] DESC
-            `
-          }
+          body: { query }
         }
       )
 
