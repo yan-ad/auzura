@@ -33,7 +33,7 @@ export type AzureAuthSessionSecure = {
 
 export const AZURE_DEVOPS_RESOURCE_ID = '499b84ac-1321-427f-aa17-267ca6975798'
 export const AZURE_DEVOPS_DEFAULT_REDIRECT_URI = 'https://auzura.vercel.app/api/auth/azure/callback'
-export const AZURE_DEVOPS_CONNECTION_DATA_API_VERSION = '7.0'
+export const AZURE_DEVOPS_CONNECTION_DATA_API_VERSION = '7.0-preview'
 
 export function getAzureDevOpsConnectionDataUrl(organization: string): string {
   return `https://dev.azure.com/${organization}/_apis/connectionData?api-version=${AZURE_DEVOPS_CONNECTION_DATA_API_VERSION}`
