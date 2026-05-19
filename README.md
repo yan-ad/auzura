@@ -21,6 +21,10 @@ Fill `.env`:
 ```bash
 NUXT_PUBLIC_AZURE_DEVOPS_ORGANIZATION=your-org
 NUXT_AZURE_DEVOPS_TOKEN=your-pat
+
+# aliases also supported:
+# AZURE_DEVOPS_ORGANIZATION=your-org
+# AZURE_DEVOPS_TOKEN=your-pat
 ```
 
 The PAT needs Azure DevOps **Work Items: Read & write** scope.

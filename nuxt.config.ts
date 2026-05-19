@@ -4,9 +4,10 @@ export default defineNuxtConfig({
   modules: ['@nuxt/ui'],
   css: ['~/../assets/css/main.css'],
   runtimeConfig: {
-    azureDevOpsToken: '',
+    azureDevOpsOrganization: process.env.NUXT_AZURE_DEVOPS_ORGANIZATION || process.env.AZURE_DEVOPS_ORGANIZATION || '',
+    azureDevOpsToken: process.env.NUXT_AZURE_DEVOPS_TOKEN || process.env.AZURE_DEVOPS_TOKEN || '',
     public: {
-      azureDevOpsOrganization: ''
+      azureDevOpsOrganization: process.env.NUXT_PUBLIC_AZURE_DEVOPS_ORGANIZATION || process.env.NUXT_AZURE_DEVOPS_ORGANIZATION || process.env.AZURE_DEVOPS_ORGANIZATION || ''
     }
   },
   future: {

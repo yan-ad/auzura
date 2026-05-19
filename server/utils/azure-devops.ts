@@ -32,13 +32,30 @@ type AzureWorkItemResponse = {
 
 export function getAzureConfig(): { organization: string, token: string } {
   const config = useRuntimeConfig()
-  const organization = config.public.azureDevOpsOrganization
-  const token = config.azureDevOpsToken
+  const organization = String(
+    config.azureDevOpsOrganization
+    || config.public.azureDevOpsOrganization
+    || process.env.NUXT_AZURE_DEVOPS_ORGANIZATION
+    || process.env.NUXT_PUBLIC_AZURE_DEVOPS_ORGANIZATION
+    || process.env.AZURE_DEVOPS_ORGANIZATION
+    || ''
+  ).trim()
+  const token = String(
+    config.azureDevOpsToken
+    || process.env.NUXT_AZURE_DEVOPS_TOKEN
+    || process.env.AZURE_DEVOPS_TOKEN
+    || ''
+  ).trim()
 
-  if (!organization || !token) {
+  const missing = [
+    !organization ? 'NUXT_PUBLIC_AZURE_DEVOPS_ORGANIZATION or AZURE_DEVOPS_ORGANIZATION' : '',
+    !token ? 'NUXT_AZURE_DEVOPS_TOKEN or AZURE_DEVOPS_TOKEN' : ''
+  ].filter(Boolean)
+
+  if (missing.length) {
     throw createError({
       statusCode: 500,
-      statusMessage: 'Azure DevOps is not configured. Set NUXT_PUBLIC_AZURE_DEVOPS_ORGANIZATION and NUXT_AZURE_DEVOPS_TOKEN.'
+      statusMessage: `Azure DevOps is not configured. Missing: ${missing.join(', ')}.`
     })
   }
 
