@@ -16,6 +16,8 @@ describe('isAssignedToCandidate', () => {
   it('matches normalized work item assignee email or display name against current user candidates', () => {
     expect(isAssignedToCandidate({ assignedToUniqueName: 'yan@example.com' }, ['Yan Aditia', 'yan@example.com'])).toBe(true)
     expect(isAssignedToCandidate({ assignedTo: 'Yan Aditia' }, ['yan@example.com', 'Yan Aditia'])).toBe(true)
+    expect(isAssignedToCandidate({ assignedTo: 'Yan Aditia <yan@example.com>' }, ['yan@example.com'])).toBe(true)
+    expect(isAssignedToCandidate({ assignedTo: 'yan aditia' }, ['yan.aditia@example.com'])).toBe(true)
     expect(isAssignedToCandidate({ assignedTo: 'Other User' }, ['Yan Aditia', 'yan@example.com'])).toBe(false)
   })
 })

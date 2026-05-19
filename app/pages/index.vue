@@ -9,6 +9,7 @@ const selectedProject = useCookie<string>('auzura:selected-project', { default: 
 const selectedView = ref<'assigned' | 'board'>('assigned')
 const selectedItemId = ref<number | null>(null)
 const isDetailOpen = ref(false)
+const { loggedIn, user, fetch: refreshSession } = useUserSession()
 
 const form = reactive({
   title: '',
@@ -150,6 +151,16 @@ async function moveItem(item: AzureWorkItem, state: string) {
   await refreshCurrentView()
 }
 
+async function loginWithMicrosoft() {
+  await navigateTo('/api/auth/azure/login', { external: true })
+}
+
+async function logoutFromMicrosoft() {
+  await $fetch('/api/auth/azure/logout', { method: 'POST' })
+  await refreshSession()
+  await refreshCurrentView()
+}
+
 async function openDetail(item: AzureWorkItem) {
   selectedItemId.value = item.id
   isDetailOpen.value = true
@@ -171,6 +182,18 @@ async function openDetail(item: AzureWorkItem) {
           </template>
 
           <div class="space-y-5">
+            <div class="rounded-lg border border-white/10 bg-slate-950/50 p-3">
+              <p class="text-xs uppercase tracking-wide text-slate-500">Microsoft auth</p>
+              <p class="mt-1 text-sm text-white">{{ loggedIn ? (user?.displayName || user?.email || 'Signed in') : 'Using PAT fallback' }}</p>
+              <p class="mt-1 text-xs text-slate-400">OAuth callback: auzura.vercel.app</p>
+              <UButton v-if="!loggedIn" icon="i-lucide-log-in" color="primary" variant="soft" block class="mt-3" @click="loginWithMicrosoft">
+                Sign in with Microsoft
+              </UButton>
+              <UButton v-else icon="i-lucide-log-out" color="neutral" variant="subtle" block class="mt-3" @click="logoutFromMicrosoft">
+                Sign out
+              </UButton>
+            </div>
+
             <UAlert
               v-if="projectsError"
               color="error"
@@ -254,6 +277,14 @@ async function openDetail(item: AzureWorkItem) {
             </p>
           </div>
         </section>
+
+        <UAlert
+          v-if="selectedView === 'assigned' && !loggedIn"
+          color="warning"
+          variant="soft"
+          title="Assigned-to-me works best after Microsoft sign-in"
+          description="Without OAuth the app falls back to the server PAT, so “me” can resolve to the PAT owner instead of the current dashboard user."
+        />
 
         <UAlert
           v-if="assignedError || boardError"

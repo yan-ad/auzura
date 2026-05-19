@@ -1,9 +1,11 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { createError } from 'h3'
+import { createError, type H3Event } from 'h3'
 import type { AzureProject, AzureWorkItem, AzureWorkItemInput } from '../../app/types/azure-devops'
+import { getAzureAuthorizationHeader, getAzureOAuthAccessToken } from './azure-auth'
 
 const API_VERSION = '7.1'
 const azureOrganizationStorage = new AsyncLocalStorage<string>()
+const azureEventStorage = new AsyncLocalStorage<H3Event>()
 
 type AzureQuery = Record<string, unknown>
 
@@ -68,13 +70,42 @@ export function buildWorkItemsWiql(options: { excludeRemoved?: boolean } = {}): 
         `
 }
 
+function normalizeIdentityValue(value: string): string {
+  return value.trim().toLowerCase()
+}
+
+function getEmailLocalPart(value: string): string | undefined {
+  const match = value.match(/([a-z0-9._%+-]+)@([a-z0-9.-]+\.[a-z]{2,})/i)
+  return match?.[1]?.toLowerCase()
+}
+
+function getIdentitySearchTokens(value: string): string[] {
+  const normalized = normalizeIdentityValue(value)
+  const tokens = new Set([normalized])
+  const localPart = getEmailLocalPart(value)
+
+  if (localPart) {
+    tokens.add(localPart)
+    tokens.add(localPart.replace(/[._-]+/g, ' '))
+  }
+
+  tokens.add(normalized.replace(/[._-]+/g, ' '))
+
+  return Array.from(tokens).filter((token) => token.length >= 3)
+}
+
 export function isAssignedToCandidate(item: Pick<AzureWorkItem, 'assignedTo' | 'assignedToUniqueName'>, candidates: string[]): boolean {
   const assignees = [item.assignedToUniqueName, item.assignedTo]
-    .map((value) => value?.trim().toLowerCase())
+    .map((value) => value?.trim())
     .filter((value): value is string => Boolean(value))
-  const normalizedCandidates = candidates.map((value) => value.trim().toLowerCase())
+  const normalizedAssignees = assignees.map(normalizeIdentityValue)
+  const candidateTokens = candidates.flatMap(getIdentitySearchTokens)
 
-  return assignees.some((assignee) => normalizedCandidates.includes(assignee))
+  return normalizedAssignees.some((assignee) => candidateTokens.some((candidate) => {
+    if (assignee === candidate) return true
+    if (assignee.includes(candidate)) return true
+    return candidate.includes(assignee)
+  }))
 }
 
 function getAzureErrorMessage(error: unknown): string {
@@ -147,9 +178,10 @@ export function getAzureOrganizationFromQuery(query: AzureQuery): string {
   return Array.isArray(value) ? String(value[0] || '').trim() : String(value || '').trim()
 }
 
-export async function withAzureOrganization<T>(organization: string | undefined, callback: () => Promise<T>): Promise<T> {
+export async function withAzureOrganization<T>(organization: string | undefined, callback: () => Promise<T>, event?: H3Event): Promise<T> {
   const normalized = organization?.trim()
-  return normalized ? await azureOrganizationStorage.run(normalized, callback) : await callback()
+  const runWithEvent = async () => event ? await azureEventStorage.run(event, callback) : await callback()
+  return normalized ? await azureOrganizationStorage.run(normalized, runWithEvent) : await runWithEvent()
 }
 
 export function getAzureConfig(): { organization: string, token: string } {
@@ -171,10 +203,6 @@ export function getAzureConfig(): { organization: string, token: string } {
   return { organization, token }
 }
 
-function getAuthHeader(token: string): string {
-  return `Basic ${Buffer.from(`:${token}`).toString('base64')}`
-}
-
 function getOrganizationUrl(organization: string, path: string): string {
   return `https://dev.azure.com/${organization}/_apis/${path}`
 }
@@ -186,12 +214,13 @@ function getProjectUrl(organization: string, project: string, path: string): str
 
 async function azureFetch<T>(url: string, init: Parameters<typeof $fetch>[1] = {}): Promise<T> {
   const { token } = getAzureConfig()
+  const accessToken = await getAzureOAuthAccessToken(azureEventStorage.getStore())
 
   try {
     const response = await $fetch<T>(url, {
       ...init,
       headers: {
-        Authorization: getAuthHeader(token),
+        Authorization: getAzureAuthorizationHeader({ accessToken, pat: token }),
         Accept: 'application/json',
         ...init.headers
       }

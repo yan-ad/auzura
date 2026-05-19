@@ -3,7 +3,7 @@ import { getAzureOrganizationFromQuery, listProjects, withAzureOrganization } fr
 
 export default defineEventHandler(async (event): Promise<{ projects: Awaited<ReturnType<typeof listProjects>> }> => {
   const organization = getAzureOrganizationFromQuery(getQuery(event))
-  const projects = await withAzureOrganization(organization, () => listProjects())
+  const projects = await withAzureOrganization(organization, () => listProjects(), event)
 
   return { projects }
 })

@@ -5,7 +5,7 @@ export default defineEventHandler(async (event): Promise<{ items: Awaited<Return
   const query = getQuery(event)
   const organization = getAzureOrganizationFromQuery(query)
   const project = typeof query.project === 'string' ? query.project : undefined
-  const items = await withAzureOrganization(organization, () => listAssignedToMeWorkItems(project))
+  const items = await withAzureOrganization(organization, () => listAssignedToMeWorkItems(project), event)
 
   return { items }
 })

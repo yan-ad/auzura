@@ -11,7 +11,7 @@ export default defineEventHandler(async (event): Promise<{ item: Awaited<ReturnT
   const project = typeof query.project === 'string' ? query.project : undefined
   const { id } = await getValidatedRouterParams(event, paramsSchema.parse)
   const { state } = await readValidatedBody(event, bodySchema.parse)
-  const item = await withAzureOrganization(organization, () => updateWorkItemState(project, id, state))
+  const item = await withAzureOrganization(organization, () => updateWorkItemState(project, id, state), event)
 
   return { item }
 })

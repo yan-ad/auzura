@@ -9,7 +9,7 @@ export default defineEventHandler(async (event): Promise<{ item: Awaited<ReturnT
   const organization = getAzureOrganizationFromQuery(query)
   const project = typeof query.project === 'string' ? query.project : undefined
   const { id } = await getValidatedRouterParams(event, paramsSchema.parse)
-  const item = await withAzureOrganization(organization, () => getWorkItem(project, id))
+  const item = await withAzureOrganization(organization, () => getWorkItem(project, id), event)
 
   return { item }
 })

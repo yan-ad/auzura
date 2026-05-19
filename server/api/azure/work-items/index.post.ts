@@ -15,7 +15,7 @@ export default defineEventHandler(async (event): Promise<{ item: Awaited<ReturnT
   const organization = getAzureOrganizationFromQuery(query)
   const project = typeof query.project === 'string' ? query.project : undefined
   const body = await readValidatedBody(event, schema.parse)
-  const item = await withAzureOrganization(organization, () => createWorkItem(project, body))
+  const item = await withAzureOrganization(organization, () => createWorkItem(project, body), event)
 
   return { item }
 })
