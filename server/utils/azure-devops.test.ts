@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildWorkItemsWiql, isAssignedToCandidate } from './azure-devops'
+import { buildWorkItemsWiql, chunkWorkItemIds, isAssignedToCandidate } from './azure-devops'
 
 describe('buildWorkItemsWiql', () => {
   it('uses Azure DevOps @project context instead of interpolating a project literal', () => {
@@ -9,6 +9,19 @@ describe('buildWorkItemsWiql', () => {
     expect(query).toContain('[System.TeamProject] = @project')
     expect(query).toContain("[System.State] <> 'Removed'")
     expect(query).not.toContain('OPI Board')
+  })
+})
+
+describe('chunkWorkItemIds', () => {
+  it('splits large Azure DevOps work item batches under the API limit', () => {
+    const ids = Array.from({ length: 501 }, (_, index) => index + 1)
+
+    const chunks = chunkWorkItemIds(ids)
+
+    expect(chunks).toHaveLength(3)
+    expect(chunks.map((chunk) => chunk.length)).toEqual([200, 200, 101])
+    expect(chunks[0]?.[0]).toBe(1)
+    expect(chunks[2]?.[100]).toBe(501)
   })
 })
 

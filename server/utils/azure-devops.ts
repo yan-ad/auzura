@@ -273,6 +273,18 @@ function assertProject(project?: string): string {
   return project
 }
 
+const WORK_ITEM_BATCH_SIZE = 200
+
+export function chunkWorkItemIds(ids: number[], size = WORK_ITEM_BATCH_SIZE): number[][] {
+  const chunks: number[][] = []
+
+  for (let index = 0; index < ids.length; index += size) {
+    chunks.push(ids.slice(index, index + size))
+  }
+
+  return chunks
+}
+
 const WORK_ITEM_FIELDS = [
   'System.Id',
   'System.Title',
@@ -299,19 +311,25 @@ async function fetchWorkItemsByIds(project: string, ids: number[]): Promise<Azur
   }
 
   const { organization } = getAzureConfig()
-  const batch = await azureFetch<{ value: AzureWorkItemResponse[] }>(
-    getProjectUrl(organization, project, `wit/workitemsbatch?api-version=${API_VERSION}`),
-    {
-      method: 'POST',
-      body: {
-        ids,
-        fields: WORK_ITEM_FIELDS,
-        $expand: 'Links'
-      }
-    }
-  )
+  const items: AzureWorkItem[] = []
 
-  return batch.value.map(normalizeWorkItem)
+  for (const chunk of chunkWorkItemIds(ids)) {
+    const batch = await azureFetch<{ value: AzureWorkItemResponse[] }>(
+      getProjectUrl(organization, project, `wit/workitemsbatch?api-version=${API_VERSION}`),
+      {
+        method: 'POST',
+        body: {
+          ids: chunk,
+          fields: WORK_ITEM_FIELDS,
+          $expand: 'Links'
+        }
+      }
+    )
+
+    items.push(...batch.value.map(normalizeWorkItem))
+  }
+
+  return items
 }
 
 export async function getCurrentUser(): Promise<{ displayName?: string, email?: string }> {
