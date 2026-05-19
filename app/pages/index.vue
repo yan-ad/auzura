@@ -31,13 +31,23 @@ const { data: projectsData, pending: projectsPending, error: projectsError, refr
 const projects = computed(() => projectsData.value?.projects ?? [])
 const projectOptions = computed(() => projects.value.map((project) => project.name))
 const activeProject = computed(() => selectedProject.value || projectOptions.value[0] || '')
+const canLoadAzure = computed(() => loggedIn.value)
 
-watch(activeOrganization, async () => {
+watch([activeOrganization, canLoadAzure], async ([, isLoggedIn]) => {
   selectedProject.value = ''
+
+  if (!isLoggedIn) {
+    projectsData.value = undefined
+    projectsError.value = undefined
+    return
+  }
+
   await refreshProjects()
 }, { immediate: true })
 
 watch(projectOptions, (options) => {
+  if (!canLoadAzure.value) return
+
   if (!selectedProject.value && options[0]) {
     selectedProject.value = options[0]
   }
@@ -72,8 +82,8 @@ const { data: detailData, pending: detailPending, refresh: refreshDetail } = awa
   watch: false
 })
 
-watch(activeProject, async (project) => {
-  if (project) {
+watch([activeProject, canLoadAzure], async ([project, isLoggedIn]) => {
+  if (project && isLoggedIn) {
     await Promise.all([refreshBoard(), refreshAssigned()])
   }
 }, { immediate: true })
@@ -104,7 +114,7 @@ function stripHtml(value?: string) {
 }
 
 async function refreshCurrentView() {
-  if (!activeProject.value) return
+  if (!canLoadAzure.value || !activeProject.value) return
   await Promise.all([refreshBoard(), refreshAssigned()])
   if (selectedItemId.value) {
     await refreshDetail()
@@ -157,8 +167,18 @@ async function loginWithMicrosoft() {
 
 async function logoutFromMicrosoft() {
   await $fetch('/api/auth/azure/logout', { method: 'POST' })
+  projectsData.value = undefined
+  projectsError.value = undefined
+  boardData.value = undefined
+  boardError.value = undefined
+  assignedData.value = undefined
+  assignedError.value = undefined
+  detailData.value = undefined
+  selectedProject.value = ''
+  selectedItemId.value = null
+  isDetailOpen.value = false
   await refreshSession()
-  await refreshCurrentView()
+  toast.add({ title: 'Signed out', color: 'success' })
 }
 
 async function openDetail(item: AzureWorkItem) {
@@ -186,12 +206,14 @@ async function openDetail(item: AzureWorkItem) {
               <p class="text-xs uppercase tracking-wide text-slate-500">Microsoft auth</p>
               <p class="mt-1 text-sm text-white">{{ loggedIn ? (user?.displayName || user?.email || 'Signed in') : 'Sign in required' }}</p>
               <p class="mt-1 text-xs text-slate-400">OAuth callback: auzura.vercel.app</p>
-              <UButton v-if="!loggedIn" icon="i-lucide-log-in" color="primary" variant="soft" block class="mt-3" @click="loginWithMicrosoft">
-                Sign in with Microsoft
-              </UButton>
-              <UButton v-else icon="i-lucide-log-out" color="neutral" variant="subtle" block class="mt-3" @click="logoutFromMicrosoft">
-                Sign out
-              </UButton>
+              <div class="mt-3 grid gap-2">
+                <UButton icon="i-lucide-log-in" color="primary" variant="soft" block @click="loginWithMicrosoft">
+                  {{ loggedIn ? 'Switch Microsoft account' : 'Sign in with Microsoft' }}
+                </UButton>
+                <UButton icon="i-lucide-log-out" color="neutral" variant="subtle" block :disabled="!loggedIn" @click="logoutFromMicrosoft">
+                  Sign out
+                </UButton>
+              </div>
             </div>
 
             <UAlert
@@ -258,7 +280,7 @@ async function openDetail(item: AzureWorkItem) {
               </div>
             </div>
 
-            <UButton icon="i-lucide-refresh-cw" :loading="busy" color="neutral" variant="subtle" block :disabled="!activeProject" @click="refreshCurrentView()">
+            <UButton icon="i-lucide-refresh-cw" :loading="busy" color="neutral" variant="subtle" block :disabled="!canLoadAzure || !activeProject" @click="refreshCurrentView()">
               Refresh
             </UButton>
           </div>

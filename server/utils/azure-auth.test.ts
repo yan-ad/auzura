@@ -29,8 +29,8 @@ describe('buildAzureDevOpsOAuthConfig', () => {
 })
 
 describe('getAzureDevOpsConnectionDataUrl', () => {
-  it('uses the older stable non-preview API version required by connectionData', () => {
-    expect(getAzureDevOpsConnectionDataUrl('KiriminAja2026')).toBe('https://dev.azure.com/KiriminAja2026/_apis/connectionData?api-version=7.0')
+  it('uses the Azure DevOps connectionData preview API version', () => {
+    expect(getAzureDevOpsConnectionDataUrl('KiriminAja2026')).toBe('https://dev.azure.com/KiriminAja2026/_apis/connectionData?api-version=7.0-preview')
   })
 })
 
