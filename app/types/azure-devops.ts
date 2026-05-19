@@ -1,5 +1,12 @@
 export type AzureWorkItemState = 'New' | 'Active' | 'Resolved' | 'Closed' | 'Removed' | string
 
+export interface AzureIdentity {
+  displayName?: string
+  uniqueName?: string
+  imageUrl?: string
+  descriptor?: string
+}
+
 export interface AzureWorkItem {
   id: number
   rev?: number
@@ -7,8 +14,19 @@ export interface AzureWorkItem {
   type: string
   title: string
   state: AzureWorkItemState
+  reason?: string
+  priority?: number
+  severity?: string
   assignedTo?: string
+  assignedToUniqueName?: string
+  createdBy?: string
+  createdDate?: string
+  changedBy?: string
   changedDate?: string
+  areaPath?: string
+  iterationPath?: string
+  description?: string
+  acceptanceCriteria?: string
   tags: string[]
   webUrl: string
 }
