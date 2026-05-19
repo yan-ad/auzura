@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { createError, type H3Event } from 'h3'
 import type { AzureProject, AzureWorkItem, AzureWorkItemInput } from '../../app/types/azure-devops'
-import { getAzureAuthorizationHeader, getAzureOAuthAccessToken } from './azure-auth'
+import { getAzureAuthorizationHeader, getAzureDevOpsConnectionDataUrl, getAzureOAuthAccessToken } from './azure-auth'
 
 const API_VERSION = '7.1'
 const azureOrganizationStorage = new AsyncLocalStorage<string>()
@@ -317,7 +317,7 @@ async function fetchWorkItemsByIds(project: string, ids: number[]): Promise<Azur
 export async function getCurrentUser(): Promise<{ displayName?: string, email?: string }> {
   const { organization } = getAzureConfig()
   const response = await azureFetch<AzureConnectionDataResponse>(
-    getOrganizationUrl(organization, `connectionData?api-version=${API_VERSION}`)
+    getAzureDevOpsConnectionDataUrl(organization)
   )
   const user = response.authenticatedUser
 

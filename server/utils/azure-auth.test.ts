@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildAzureDevOpsOAuthConfig, getAzureAuthorizationHeader } from './azure-auth'
+import { buildAzureDevOpsOAuthConfig, getAzureAuthorizationHeader, getAzureDevOpsConnectionDataUrl } from './azure-auth'
 
 describe('buildAzureDevOpsOAuthConfig', () => {
   it('uses the production auzura.vercel.app callback when no redirect URI is configured', () => {
@@ -25,6 +25,12 @@ describe('buildAzureDevOpsOAuthConfig', () => {
 
     expect(config.scope).toContain('499b84ac-1321-427f-aa17-267ca6975798/.default')
     expect(config.scope).toContain('offline_access')
+  })
+})
+
+describe('getAzureDevOpsConnectionDataUrl', () => {
+  it('uses the older stable non-preview API version required by connectionData', () => {
+    expect(getAzureDevOpsConnectionDataUrl('KiriminAja2026')).toBe('https://dev.azure.com/KiriminAja2026/_apis/connectionData?api-version=7.0')
   })
 })
 

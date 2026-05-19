@@ -1,5 +1,5 @@
 import { createError, getQuery, sendRedirect } from 'h3'
-import { buildAzureDevOpsOAuthConfig } from '../../../utils/azure-auth'
+import { buildAzureDevOpsOAuthConfig, getAzureDevOpsConnectionDataUrl } from '../../../utils/azure-auth'
 
 type TokenResponse = {
   access_token?: string
@@ -48,7 +48,7 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 401, statusMessage: tokens.error_description || tokens.error || 'Azure OAuth token exchange failed.' })
   }
 
-  const connectionData = await $fetch<ConnectionDataResponse>(`https://dev.azure.com/${config.organization}/_apis/connectionData?api-version=7.1`, {
+  const connectionData = await $fetch<ConnectionDataResponse>(getAzureDevOpsConnectionDataUrl(config.organization), {
     headers: { Authorization: `Bearer ${tokens.access_token}`, Accept: 'application/json' }
   })
   const authenticatedUser = connectionData.authenticatedUser
