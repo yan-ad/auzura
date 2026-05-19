@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { NavigationMenuItem } from '@nuxt/ui'
 import type { AzureProject, AzureWorkItem } from '~/types/azure-devops'
 
 const toast = useToast()
@@ -91,7 +92,7 @@ watch([activeProject, canLoadAzure], async ([project, isLoggedIn]) => {
 const assignedItems = computed(() => assignedData.value?.items ?? [])
 const boardItems = computed(() => boardData.value?.items ?? [])
 const selectedItem = computed(() => detailData.value?.item || assignedItems.value.find((item) => item.id === selectedItemId.value) || boardItems.value.find((item) => item.id === selectedItemId.value))
-const busy = computed(() => boardPending.value || assignedPending.value)
+const busy = computed(() => boardPending.value || assignedPending.value || projectsPending.value)
 
 const columns = computed(() => states.map((state) => ({
   state,
@@ -103,6 +104,48 @@ const assignedByState = computed(() => states.map((state) => ({
   count: assignedItems.value.filter((item) => item.state === state).length
 })))
 
+const dashboardStats = computed<Array<{
+  title: string
+  icon: string
+  value: string | number
+  tone: 'primary' | 'secondary' | 'success' | 'info' | 'warning' | 'error' | 'neutral'
+}>>(() => [{
+  title: 'Assigned to me',
+  icon: 'i-lucide-list-checks',
+  value: assignedItems.value.length,
+  tone: 'primary'
+}, {
+  title: 'Recent board items',
+  icon: 'i-lucide-kanban',
+  value: boardItems.value.length,
+  tone: 'info'
+}, {
+  title: 'Active project',
+  icon: 'i-lucide-folder-kanban',
+  value: activeProject.value || '—',
+  tone: 'success'
+}, {
+  title: 'Azure organization',
+  icon: 'i-lucide-building-2',
+  value: activeOrganization.value || 'Env default',
+  tone: 'neutral'
+}])
+
+const viewNavigation = computed<NavigationMenuItem[][]>(() => [[{
+  label: 'Assigned to me',
+  icon: 'i-lucide-list-checks',
+  badge: String(assignedItems.value.length),
+  active: selectedView.value === 'assigned',
+  onSelect: () => { selectedView.value = 'assigned' }
+}, {
+  label: 'Kanban board',
+  icon: 'i-lucide-kanban',
+  badge: String(boardItems.value.length),
+  active: selectedView.value === 'board',
+  onSelect: () => { selectedView.value = 'board' }
+}]])
+
+
 function formatDate(value?: string) {
   if (!value) return '—'
   return new Intl.DateTimeFormat('en', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
@@ -111,6 +154,13 @@ function formatDate(value?: string) {
 function stripHtml(value?: string) {
   if (!value) return 'No description.'
   return value.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() || 'No description.'
+}
+
+function stateColor(state?: string) {
+  if (state === 'Closed') return 'success'
+  if (state === 'Resolved') return 'info'
+  if (state === 'Active') return 'warning'
+  return 'neutral'
 }
 
 async function refreshCurrentView() {
@@ -189,272 +239,372 @@ async function openDetail(item: AzureWorkItem) {
 </script>
 
 <template>
-  <main class="min-h-screen px-4 py-8 sm:px-6 lg:px-8">
-    <div class="mx-auto grid max-w-7xl gap-6 lg:grid-cols-[20rem_1fr]">
-      <aside class="space-y-4">
-        <UCard variant="subtle" class="sticky top-6 bg-white/5 ring-white/10">
-          <template #header>
-            <div class="space-y-1">
-              <UBadge color="primary" variant="soft">Auzura</UBadge>
-              <h1 class="text-2xl font-bold tracking-tight text-white">Azure Boards</h1>
-              <p class="text-sm text-slate-400">Jira-ish control surface, tetap scoped per project.</p>
-            </div>
+  <UDashboardGroup storage="local" storage-key="auzura-dashboard" unit="rem">
+    <UDashboardSidebar
+      id="auzura-sidebar"
+      collapsible
+      resizable
+      class="bg-elevated/40"
+      :ui="{ footer: 'lg:border-t lg:border-default' }"
+    >
+      <template #header="{ collapsed }">
+        <div class="flex min-w-0 items-center gap-3 px-1 py-2">
+          <div class="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 ring ring-primary/25">
+            <UIcon name="i-lucide-cloud-cog" class="size-5 text-primary" />
+          </div>
+          <div v-if="!collapsed" class="min-w-0">
+            <p class="truncate text-sm font-semibold text-highlighted">Auzura</p>
+            <p class="truncate text-xs text-muted">Azure Boards cockpit</p>
+          </div>
+        </div>
+      </template>
+
+      <template #default="{ collapsed }">
+        <div v-if="!collapsed" class="rounded-lg border border-default bg-default/60 px-3 py-2 text-xs text-muted">
+          Switch views and projects from this cockpit.
+        </div>
+
+        <UNavigationMenu
+          :collapsed="collapsed"
+          :items="viewNavigation[0]"
+          orientation="vertical"
+          tooltip
+          class="mt-3"
+        />
+
+        <div v-if="!collapsed" class="mt-6 space-y-4 rounded-xl border border-default bg-default/60 p-3">
+          <div class="space-y-1">
+            <p class="text-xs font-medium uppercase tracking-wide text-muted">Microsoft auth</p>
+            <p class="truncate text-sm font-medium text-highlighted">
+              {{ loggedIn ? (user?.displayName || user?.email || 'Signed in') : 'Sign in required' }}
+            </p>
+            <p class="text-xs text-muted">OAuth callback: auzura.vercel.app</p>
+          </div>
+
+          <div class="grid gap-2">
+            <UButton icon="i-lucide-log-in" color="primary" variant="soft" block @click="loginWithMicrosoft">
+              {{ loggedIn ? 'Switch account' : 'Sign in' }}
+            </UButton>
+            <UButton icon="i-lucide-log-out" color="neutral" variant="ghost" block :disabled="!loggedIn" @click="logoutFromMicrosoft">
+              Sign out
+            </UButton>
+          </div>
+        </div>
+
+        <div v-if="!collapsed" class="mt-4 space-y-4 rounded-xl border border-default bg-default/60 p-3">
+          <UFormField label="Organization" help="Empty uses env default.">
+            <UInput v-model="selectedOrganization" icon="i-lucide-building-2" placeholder="your-azure-org" />
+          </UFormField>
+
+          <UFormField label="Project">
+            <USelectMenu
+              v-model="selectedProject"
+              :items="projectOptions"
+              :loading="projectsPending"
+              icon="i-lucide-folder-kanban"
+              placeholder="Select project"
+              searchable
+            />
+          </UFormField>
+        </div>
+
+        <div v-if="!collapsed" class="mt-auto grid grid-cols-2 gap-2">
+          <div v-for="item in assignedByState" :key="item.label" class="rounded-lg border border-default bg-elevated/60 p-3">
+            <p class="text-xs text-muted">{{ item.label }}</p>
+            <p class="text-xl font-semibold text-highlighted">{{ item.count }}</p>
+          </div>
+        </div>
+      </template>
+
+      <template #footer="{ collapsed }">
+        <UButton
+          :icon="collapsed ? 'i-lucide-refresh-cw' : undefined"
+          :label="collapsed ? undefined : 'Refresh content'"
+          color="neutral"
+          variant="ghost"
+          block
+          :loading="busy"
+          :disabled="!canLoadAzure || !activeProject"
+          @click="refreshCurrentView()"
+        />
+      </template>
+    </UDashboardSidebar>
+
+    <UDashboardPanel id="auzura-main">
+      <template #header>
+        <UDashboardNavbar :title="activeProject || 'Azure Boards'" :ui="{ right: 'gap-2' }">
+          <template #leading>
+            <UDashboardSidebarCollapse />
           </template>
 
-          <div class="space-y-5">
-            <div class="rounded-lg border border-white/10 bg-slate-950/50 p-3">
-              <p class="text-xs uppercase tracking-wide text-slate-500">Microsoft auth</p>
-              <p class="mt-1 text-sm text-white">{{ loggedIn ? (user?.displayName || user?.email || 'Signed in') : 'Sign in required' }}</p>
-              <p class="mt-1 text-xs text-slate-400">OAuth callback: auzura.vercel.app</p>
-              <div class="mt-3 grid gap-2">
-                <UButton icon="i-lucide-log-in" color="primary" variant="soft" block @click="loginWithMicrosoft">
-                  {{ loggedIn ? 'Switch Microsoft account' : 'Sign in with Microsoft' }}
-                </UButton>
-                <UButton icon="i-lucide-log-out" color="neutral" variant="subtle" block :disabled="!loggedIn" @click="logoutFromMicrosoft">
-                  Sign out
-                </UButton>
-              </div>
-            </div>
-
-            <UAlert
-              v-if="projectsError"
-              color="error"
-              variant="soft"
-              title="Project list failed"
-              :description="projectsError.message"
+          <template #right>
+            <UBadge :color="loggedIn ? 'success' : 'warning'" variant="soft">
+              {{ loggedIn ? 'Microsoft connected' : 'Login required' }}
+            </UBadge>
+            <UButton
+              icon="i-lucide-refresh-cw"
+              color="neutral"
+              variant="ghost"
+              square
+              :loading="busy"
+              :disabled="!canLoadAzure || !activeProject"
+              @click="refreshCurrentView()"
             />
+            <UColorModeButton color="neutral" variant="ghost" />
+          </template>
+        </UDashboardNavbar>
 
-            <UFormField label="Organization" help="Override Azure DevOps org slug. Falls back to env when empty.">
-              <UInput
-                v-model="selectedOrganization"
-                placeholder="your-azure-org"
-              />
-            </UFormField>
-
-            <UFormField label="Project">
-              <USelectMenu
-                v-model="selectedProject"
-                :items="projectOptions"
-                :loading="projectsPending"
-                placeholder="Select Azure project"
-                searchable
-              />
-            </UFormField>
-
-            <div class="space-y-2">
+        <UDashboardToolbar>
+          <template #left>
+            <UButtonGroup>
               <UButton
                 icon="i-lucide-list-checks"
                 :color="selectedView === 'assigned' ? 'primary' : 'neutral'"
-                :variant="selectedView === 'assigned' ? 'solid' : 'subtle'"
-                block
+                :variant="selectedView === 'assigned' ? 'subtle' : 'ghost'"
                 @click="selectedView = 'assigned'"
               >
-                Assigned to me
-                <template #trailing>
-                  <UBadge color="neutral" variant="soft">{{ assignedItems.length }}</UBadge>
-                </template>
+                Assigned
               </UButton>
-
               <UButton
                 icon="i-lucide-kanban"
                 :color="selectedView === 'board' ? 'primary' : 'neutral'"
-                :variant="selectedView === 'board' ? 'solid' : 'subtle'"
-                block
+                :variant="selectedView === 'board' ? 'subtle' : 'ghost'"
                 @click="selectedView = 'board'"
               >
-                Kanban board
+                Kanban
               </UButton>
-            </div>
-
-            <div class="rounded-lg border border-white/10 bg-slate-950/50 p-3 text-sm text-slate-300">
-              <p class="text-xs uppercase tracking-wide text-slate-500">Active organization</p>
-              <p class="mt-1 font-medium text-white">{{ activeOrganization || 'Env default' }}</p>
-              <p class="mt-3 text-xs uppercase tracking-wide text-slate-500">Active project</p>
-              <p class="mt-1 font-medium text-white">{{ activeProject || 'No project selected' }}</p>
-            </div>
-
-            <div class="grid grid-cols-2 gap-2">
-              <div v-for="item in assignedByState" :key="item.label" class="rounded-lg border border-white/10 bg-white/5 p-3">
-                <p class="text-xs text-slate-400">{{ item.label }}</p>
-                <p class="text-xl font-semibold text-white">{{ item.count }}</p>
-              </div>
-            </div>
-
-            <UButton icon="i-lucide-refresh-cw" :loading="busy" color="neutral" variant="subtle" block :disabled="!canLoadAzure || !activeProject" @click="refreshCurrentView()">
-              Refresh
-            </UButton>
-          </div>
-        </UCard>
-      </aside>
-
-      <div class="flex min-w-0 flex-col gap-8">
-        <section class="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-          <div class="space-y-3">
-            <UBadge color="primary" variant="soft" size="lg">{{ selectedView === 'assigned' ? 'Personal watchlist' : 'Kanban view' }}</UBadge>
-            <h2 class="max-w-3xl text-4xl font-bold tracking-tight text-white sm:text-6xl">
-              {{ activeProject || 'Pick a project' }}
-            </h2>
-            <p class="max-w-2xl text-lg text-slate-300">
-              Pantau item yang ke-assign ke lu, buka detail modal, dan ubah status langsung dari list.
-            </p>
-          </div>
-        </section>
-
-        <UAlert
-          v-if="!loggedIn"
-          color="warning"
-          variant="soft"
-          title="Microsoft sign-in required"
-          description="Auzura now uses full OAuth only. Sign in with Microsoft before loading Azure DevOps content."
-        />
-
-        <UAlert
-          v-if="assignedError || boardError"
-          color="error"
-          variant="soft"
-          title="Azure DevOps request failed"
-          :description="assignedError?.message || boardError?.message"
-        />
-
-        <UCard v-if="selectedView === 'assigned'" variant="subtle" class="bg-white/5 ring-white/10">
-          <template #header>
-            <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <div>
-                <h2 class="text-lg font-semibold text-white">Assigned to me</h2>
-                <p class="text-sm text-slate-400">{{ assignedItems.length }} item in {{ activeProject || 'selected project' }}</p>
-              </div>
-              <UButton icon="i-lucide-refresh-cw" :loading="assignedPending" color="neutral" variant="subtle" @click="refreshAssigned()">
-                Refresh list
-              </UButton>
-            </div>
+            </UButtonGroup>
           </template>
 
-          <div class="overflow-x-auto">
-            <table class="w-full min-w-[880px] text-left text-sm">
-              <thead class="border-b border-white/10 text-xs uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th class="px-3 py-3">Key</th>
-                  <th class="px-3 py-3">Title</th>
-                  <th class="px-3 py-3">Type</th>
-                  <th class="px-3 py-3">Priority</th>
-                  <th class="px-3 py-3">Updated</th>
-                  <th class="px-3 py-3">Status</th>
-                  <th class="px-3 py-3 text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-white/10">
-                <tr v-if="assignedPending" v-for="index in 5" :key="index">
-                  <td colspan="7" class="px-3 py-4"><USkeleton class="h-8" /></td>
-                </tr>
-                <tr v-for="item in assignedItems" v-else :key="item.id" class="hover:bg-white/5">
-                  <td class="whitespace-nowrap px-3 py-4 text-slate-400">#{{ item.id }}</td>
-                  <td class="px-3 py-4">
-                    <button class="max-w-md truncate text-left font-medium text-white hover:text-primary-300" @click="openDetail(item)">
-                      {{ item.title }}
-                    </button>
-                    <p class="mt-1 truncate text-xs text-slate-500">{{ item.areaPath || 'No area' }}</p>
-                  </td>
-                  <td class="whitespace-nowrap px-3 py-4"><UBadge color="neutral" variant="soft">{{ item.type }}</UBadge></td>
-                  <td class="whitespace-nowrap px-3 py-4 text-slate-300">{{ item.priority || '—' }}</td>
-                  <td class="whitespace-nowrap px-3 py-4 text-slate-400">{{ formatDate(item.changedDate) }}</td>
-                  <td class="min-w-40 px-3 py-4">
-                    <USelectMenu :model-value="item.state" :items="states" size="xs" @update:model-value="moveItem(item, String($event))" />
-                  </td>
-                  <td class="whitespace-nowrap px-3 py-4 text-right">
-                    <UButton icon="i-lucide-panel-right-open" color="neutral" variant="ghost" size="xs" @click="openDetail(item)">
-                      Detail
-                    </UButton>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+          <template #right>
+            <USelectMenu
+              v-model="selectedProject"
+              :items="projectOptions"
+              :loading="projectsPending"
+              class="w-56"
+              placeholder="Project"
+              searchable
+            />
+          </template>
+        </UDashboardToolbar>
+      </template>
 
-          <p v-if="!assignedPending && activeProject && !assignedItems.length" class="rounded-lg border border-dashed border-white/10 p-8 text-center text-sm text-slate-500">
-            No assigned work items in this project.
-          </p>
-        </UCard>
-
-        <template v-else>
-          <UCard variant="subtle" class="bg-white/5 ring-white/10">
-            <template #header>
+      <template #body>
+        <div class="space-y-6">
+          <section class="space-y-3">
+            <UBadge color="primary" variant="soft">
+              {{ selectedView === 'assigned' ? 'Personal watchlist' : 'Kanban view' }}
+            </UBadge>
+            <div class="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
               <div>
-                <h2 class="text-lg font-semibold text-white">Quick create</h2>
-                <p class="text-sm text-slate-400">Creates inside <span class="font-medium text-white">{{ activeProject || 'selected project' }}</span> using your Microsoft OAuth session.</p>
+                <h1 class="text-3xl font-semibold tracking-tight text-highlighted sm:text-4xl">
+                  {{ activeProject || 'Pick a project' }}
+                </h1>
+                <p class="mt-2 max-w-2xl text-sm text-muted">
+                  Dashboard buat pantau Azure Boards: assigned items, recent board, create work item, dan update status tanpa keluar app.
+                </p>
+              </div>
+              <UButton icon="i-lucide-plus" :disabled="!activeProject" @click="selectedView = 'board'">
+                New work item
+              </UButton>
+            </div>
+          </section>
+
+          <UAlert
+            v-if="!loggedIn"
+            color="warning"
+            variant="soft"
+            icon="i-lucide-circle-alert"
+            title="Microsoft sign-in required"
+            description="Auzura uses Microsoft OAuth before loading Azure DevOps content."
+          />
+
+          <UAlert
+            v-if="projectsError"
+            color="error"
+            variant="soft"
+            icon="i-lucide-triangle-alert"
+            title="Project list failed"
+            :description="projectsError.message"
+          />
+
+          <UAlert
+            v-if="assignedError || boardError"
+            color="error"
+            variant="soft"
+            icon="i-lucide-triangle-alert"
+            title="Azure DevOps request failed"
+            :description="assignedError?.message || boardError?.message"
+          />
+
+          <UPageGrid class="gap-4 sm:grid-cols-2 lg:grid-cols-4 lg:gap-px">
+            <UPageCard
+              v-for="(stat, index) in dashboardStats"
+              :key="stat.title"
+              :icon="stat.icon"
+              :title="stat.title"
+              variant="subtle"
+              :ui="{
+                container: 'gap-y-1.5',
+                wrapper: 'items-start',
+                leading: 'p-2.5 rounded-full bg-primary/10 ring ring-inset ring-primary/25',
+                title: 'font-normal text-muted text-xs uppercase'
+              }"
+              class="lg:rounded-none first:rounded-l-lg last:rounded-r-lg hover:z-1"
+            >
+              <div class="flex items-center gap-2">
+                <span class="truncate text-2xl font-semibold text-highlighted">
+                  {{ stat.value }}
+                </span>
+                <UBadge :color="stat.tone" variant="subtle" class="text-xs">
+                  live
+                </UBadge>
+              </div>
+            </UPageCard>
+          </UPageGrid>
+
+          <UCard v-if="selectedView === 'assigned'" variant="subtle">
+            <template #header>
+              <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h2 class="text-lg font-semibold text-highlighted">Assigned to me</h2>
+                  <p class="text-sm text-muted">{{ assignedItems.length }} item in {{ activeProject || 'selected project' }}</p>
+                </div>
+                <UButton icon="i-lucide-refresh-cw" :loading="assignedPending" color="neutral" variant="subtle" @click="refreshAssigned()">
+                  Refresh list
+                </UButton>
               </div>
             </template>
 
-            <form class="grid gap-4 lg:grid-cols-12" @submit.prevent="createItem">
-              <UFormField label="Title" class="lg:col-span-4">
-                <UInput v-model="form.title" placeholder="Fix flaky release checklist" :disabled="!activeProject" />
-              </UFormField>
+            <div class="overflow-x-auto">
+              <table class="w-full min-w-[880px] text-left text-sm">
+                <thead class="border-b border-default text-xs uppercase tracking-wide text-muted">
+                  <tr>
+                    <th class="px-3 py-3">Key</th>
+                    <th class="px-3 py-3">Title</th>
+                    <th class="px-3 py-3">Type</th>
+                    <th class="px-3 py-3">Priority</th>
+                    <th class="px-3 py-3">Updated</th>
+                    <th class="px-3 py-3">Status</th>
+                    <th class="px-3 py-3 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-default">
+                  <tr v-if="assignedPending" v-for="index in 5" :key="index">
+                    <td colspan="7" class="px-3 py-4"><USkeleton class="h-8" /></td>
+                  </tr>
+                  <tr v-for="item in assignedItems" v-else :key="item.id" class="hover:bg-elevated/50">
+                    <td class="whitespace-nowrap px-3 py-4 text-muted">#{{ item.id }}</td>
+                    <td class="px-3 py-4">
+                      <button class="max-w-md truncate text-left font-medium text-highlighted hover:text-primary" @click="openDetail(item)">
+                        {{ item.title }}
+                      </button>
+                      <p class="mt-1 truncate text-xs text-muted">{{ item.areaPath || 'No area' }}</p>
+                    </td>
+                    <td class="whitespace-nowrap px-3 py-4"><UBadge color="neutral" variant="soft">{{ item.type }}</UBadge></td>
+                    <td class="whitespace-nowrap px-3 py-4 text-toned">{{ item.priority || '—' }}</td>
+                    <td class="whitespace-nowrap px-3 py-4 text-muted">{{ formatDate(item.changedDate) }}</td>
+                    <td class="min-w-40 px-3 py-4">
+                      <USelectMenu :model-value="item.state" :items="states" size="xs" @update:model-value="moveItem(item, String($event))" />
+                    </td>
+                    <td class="whitespace-nowrap px-3 py-4 text-right">
+                      <UButton icon="i-lucide-panel-right-open" color="neutral" variant="ghost" size="xs" @click="openDetail(item)">
+                        Detail
+                      </UButton>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
 
-              <UFormField label="Type" class="lg:col-span-2">
-                <USelect v-model="form.type" :items="workItemTypes" :disabled="!activeProject" />
-              </UFormField>
-
-              <UFormField label="Assigned to" class="lg:col-span-3">
-                <UInput v-model="form.assignedTo" placeholder="name@company.com" :disabled="!activeProject" />
-              </UFormField>
-
-              <UFormField label="Tags" class="lg:col-span-3">
-                <UInput v-model="form.tags" placeholder="auzura, dx" :disabled="!activeProject" />
-              </UFormField>
-
-              <UFormField label="Description" class="lg:col-span-10">
-                <UTextarea v-model="form.description" autoresize placeholder="What should happen?" :disabled="!activeProject" />
-              </UFormField>
-
-              <div class="flex items-end lg:col-span-2">
-                <UButton type="submit" block icon="i-lucide-plus" :disabled="!activeProject">Create</UButton>
-              </div>
-            </form>
+            <p v-if="!assignedPending && activeProject && !assignedItems.length" class="rounded-lg border border-dashed border-default p-8 text-center text-sm text-muted">
+              No assigned work items in this project.
+            </p>
           </UCard>
 
-          <section class="grid gap-4 xl:grid-cols-4">
-            <UCard
-              v-for="column in columns"
-              :key="column.state"
-              variant="subtle"
-              class="min-h-96 bg-white/5 ring-white/10"
-            >
+          <template v-else>
+            <UCard variant="subtle">
               <template #header>
-                <div class="flex items-center justify-between">
-                  <h2 class="font-semibold text-white">{{ column.state }}</h2>
-                  <UBadge color="neutral" variant="soft">{{ column.items.length }}</UBadge>
+                <div>
+                  <h2 class="text-lg font-semibold text-highlighted">Quick create</h2>
+                  <p class="text-sm text-muted">Creates inside <span class="font-medium text-highlighted">{{ activeProject || 'selected project' }}</span> using your Microsoft OAuth session.</p>
                 </div>
               </template>
 
-              <div class="space-y-3">
-                <USkeleton v-if="boardPending" v-for="index in 3" :key="index" class="h-28" />
+              <form class="grid gap-4 lg:grid-cols-12" @submit.prevent="createItem">
+                <UFormField label="Title" class="lg:col-span-4">
+                  <UInput v-model="form.title" icon="i-lucide-pencil" placeholder="Fix flaky release checklist" :disabled="!activeProject" />
+                </UFormField>
 
-                <UCard v-for="item in column.items" v-else :key="item.id" variant="soft" class="bg-slate-950/60">
-                  <div class="space-y-3">
-                    <div class="flex items-start justify-between gap-3">
-                      <div>
-                        <p class="text-xs text-slate-400">#{{ item.id }} · {{ item.type }}</p>
-                        <button class="text-left font-medium text-white hover:text-primary-300" @click="openDetail(item)">
-                          {{ item.title }}
-                        </button>
-                      </div>
-                      <UBadge v-if="item.tags[0]" color="primary" variant="soft">{{ item.tags[0] }}</UBadge>
-                    </div>
+                <UFormField label="Type" class="lg:col-span-2">
+                  <USelect v-model="form.type" :items="workItemTypes" :disabled="!activeProject" />
+                </UFormField>
 
-                    <p v-if="item.assignedTo" class="text-xs text-slate-400">Assigned: {{ item.assignedTo }}</p>
+                <UFormField label="Assigned to" class="lg:col-span-3">
+                  <UInput v-model="form.assignedTo" icon="i-lucide-user" placeholder="name@company.com" :disabled="!activeProject" />
+                </UFormField>
 
-                    <USelectMenu :model-value="item.state" :items="states" size="xs" @update:model-value="moveItem(item, String($event))" />
-                  </div>
-                </UCard>
+                <UFormField label="Tags" class="lg:col-span-3">
+                  <UInput v-model="form.tags" icon="i-lucide-tags" placeholder="auzura, dx" :disabled="!activeProject" />
+                </UFormField>
 
-                <p v-if="!boardPending && activeProject && !column.items.length" class="rounded-lg border border-dashed border-white/10 p-6 text-center text-sm text-slate-500">
-                  No recent items.
-                </p>
-              </div>
+                <UFormField label="Description" class="lg:col-span-10">
+                  <UTextarea v-model="form.description" autoresize placeholder="What should happen?" :disabled="!activeProject" />
+                </UFormField>
+
+                <div class="flex items-end lg:col-span-2">
+                  <UButton type="submit" block icon="i-lucide-plus" :disabled="!activeProject">Create</UButton>
+                </div>
+              </form>
             </UCard>
-          </section>
-        </template>
-      </div>
-    </div>
+
+            <section class="grid gap-4 xl:grid-cols-4">
+              <UCard
+                v-for="column in columns"
+                :key="column.state"
+                variant="subtle"
+                class="min-h-96"
+              >
+                <template #header>
+                  <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                      <UBadge :color="stateColor(column.state)" variant="soft">{{ column.state }}</UBadge>
+                    </div>
+                    <UBadge color="neutral" variant="soft">{{ column.items.length }}</UBadge>
+                  </div>
+                </template>
+
+                <div class="space-y-3">
+                  <USkeleton v-if="boardPending" v-for="index in 3" :key="index" class="h-28" />
+
+                  <UPageCard v-for="item in column.items" v-else :key="item.id" variant="subtle" class="hover:ring-primary/30">
+                    <div class="space-y-3">
+                      <div class="flex items-start justify-between gap-3">
+                        <div class="min-w-0">
+                          <p class="text-xs text-muted">#{{ item.id }} · {{ item.type }}</p>
+                          <button class="line-clamp-2 text-left font-medium text-highlighted hover:text-primary" @click="openDetail(item)">
+                            {{ item.title }}
+                          </button>
+                        </div>
+                        <UBadge v-if="item.tags[0]" color="primary" variant="soft">{{ item.tags[0] }}</UBadge>
+                      </div>
+
+                      <p v-if="item.assignedTo" class="truncate text-xs text-muted">Assigned: {{ item.assignedTo }}</p>
+
+                      <USelectMenu :model-value="item.state" :items="states" size="xs" @update:model-value="moveItem(item, String($event))" />
+                    </div>
+                  </UPageCard>
+
+                  <p v-if="!boardPending && activeProject && !column.items.length" class="rounded-lg border border-dashed border-default p-6 text-center text-sm text-muted">
+                    No recent items.
+                  </p>
+                </div>
+              </UCard>
+            </section>
+          </template>
+        </div>
+      </template>
+    </UDashboardPanel>
 
     <UModal v-model:open="isDetailOpen" :title="selectedItem ? `#${selectedItem.id} ${selectedItem.title}` : 'Work item detail'" :description="activeProject">
       <template #body>
@@ -466,27 +616,27 @@ async function openDetail(item: AzureWorkItem) {
         <div v-else-if="selectedItem" class="space-y-5">
           <div class="flex flex-wrap items-center gap-2">
             <UBadge color="neutral" variant="soft">{{ selectedItem.type }}</UBadge>
-            <UBadge color="primary" variant="soft">{{ selectedItem.state }}</UBadge>
+            <UBadge :color="stateColor(selectedItem.state)" variant="soft">{{ selectedItem.state }}</UBadge>
             <UBadge v-if="selectedItem.priority" color="warning" variant="soft">P{{ selectedItem.priority }}</UBadge>
             <UBadge v-for="tag in selectedItem.tags" :key="tag" color="neutral" variant="outline">{{ tag }}</UBadge>
           </div>
 
           <div class="grid gap-3 sm:grid-cols-2">
-            <div class="rounded-lg border border-white/10 p-3">
-              <p class="text-xs text-slate-500">Assigned to</p>
-              <p class="text-sm text-white">{{ selectedItem.assignedTo || 'Unassigned' }}</p>
+            <div class="rounded-lg border border-default p-3">
+              <p class="text-xs text-muted">Assigned to</p>
+              <p class="text-sm text-highlighted">{{ selectedItem.assignedTo || 'Unassigned' }}</p>
             </div>
-            <div class="rounded-lg border border-white/10 p-3">
-              <p class="text-xs text-slate-500">Changed</p>
-              <p class="text-sm text-white">{{ formatDate(selectedItem.changedDate) }}</p>
+            <div class="rounded-lg border border-default p-3">
+              <p class="text-xs text-muted">Changed</p>
+              <p class="text-sm text-highlighted">{{ formatDate(selectedItem.changedDate) }}</p>
             </div>
-            <div class="rounded-lg border border-white/10 p-3">
-              <p class="text-xs text-slate-500">Area</p>
-              <p class="text-sm text-white">{{ selectedItem.areaPath || '—' }}</p>
+            <div class="rounded-lg border border-default p-3">
+              <p class="text-xs text-muted">Area</p>
+              <p class="text-sm text-highlighted">{{ selectedItem.areaPath || '—' }}</p>
             </div>
-            <div class="rounded-lg border border-white/10 p-3">
-              <p class="text-xs text-slate-500">Iteration</p>
-              <p class="text-sm text-white">{{ selectedItem.iterationPath || '—' }}</p>
+            <div class="rounded-lg border border-default p-3">
+              <p class="text-xs text-muted">Iteration</p>
+              <p class="text-sm text-highlighted">{{ selectedItem.iterationPath || '—' }}</p>
             </div>
           </div>
 
@@ -495,8 +645,8 @@ async function openDetail(item: AzureWorkItem) {
           </UFormField>
 
           <div class="space-y-2">
-            <h3 class="font-semibold text-white">Description</h3>
-            <p class="whitespace-pre-wrap rounded-lg border border-white/10 bg-slate-950/60 p-4 text-sm leading-6 text-slate-300">
+            <h3 class="font-semibold text-highlighted">Description</h3>
+            <p class="whitespace-pre-wrap rounded-lg border border-default bg-elevated/40 p-4 text-sm leading-6 text-toned">
               {{ stripHtml(selectedItem.description) }}
             </p>
           </div>
@@ -512,5 +662,5 @@ async function openDetail(item: AzureWorkItem) {
         </div>
       </template>
     </UModal>
-  </main>
+  </UDashboardGroup>
 </template>

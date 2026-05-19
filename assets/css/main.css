@@ -2,13 +2,19 @@
 @import "@nuxt/ui";
 
 :root {
-  color-scheme: dark;
+  color-scheme: light dark;
+}
+
+html,
+body,
+#__nuxt {
+  min-height: 100%;
 }
 
 body {
   min-height: 100vh;
   background:
-    radial-gradient(circle at top left, rgba(56, 189, 248, 0.18), transparent 34rem),
-    radial-gradient(circle at top right, rgba(168, 85, 247, 0.16), transparent 30rem),
-    #020617;
+    radial-gradient(circle at top left, color-mix(in oklab, var(--ui-primary) 20%, transparent), transparent 30rem),
+    radial-gradient(circle at top right, color-mix(in oklab, var(--ui-color-info-500) 16%, transparent), transparent 28rem),
+    var(--ui-bg);
 }
