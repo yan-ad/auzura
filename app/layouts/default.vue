@@ -206,6 +206,14 @@ watch(
 );
 
 watch(
+  [selectedTeam, activeProject, canLoadAzure],
+  async ([team, project, canLoad]) => {
+    if (!team || !project || !canLoad) return;
+    await refreshSprints();
+  },
+);
+
+watch(
   sprints,
   async (value) => {
     if (!value.length) return;
@@ -307,39 +315,79 @@ async function goToSection(section: SectionView) {
   if (route.path !== targetPath) await router.replace(targetPath);
 }
 
-const viewNavigation = computed<NavigationMenuItem[][]>(() => [
-  [
-    {
-      label: "All Task",
-      icon: "i-lucide-list-filter",
-      active: activeSection.value === "tasks",
-      onSelect: async () => await goToSection("tasks"),
-    },
-    {
-      label: "Overview",
-      icon: "i-lucide-chart-no-axes-column",
-      active: activeSection.value === "report",
-      onSelect: async () => await goToSection("report"),
-    },
-  ],
-]);
+const viewNavigation = computed<NavigationMenuItem[][]>(() => {
+  const teamsGroup: NavigationMenuItem[] = [
+    { label: "Sprints", type: "label" },
+  ];
 
-function formatDate(value?: string) {
-  if (!value) return "—";
-  return new Intl.DateTimeFormat("en", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
-}
+  for (const team of teamOptions.value) {
+    const isSelected = selectedTeam.value === team;
+    const teamItem: NavigationMenuItem = {
+      label: team,
+      icon: "i-lucide-users",
+      defaultOpen: isSelected,
+      onSelect: () => {
+        selectedTeam.value = team;
+      },
+    };
+    if (isSelected && sprintOptions.value.length) {
+      teamItem.children = sprintOptions.value.map((sprintPath) => {
+        const name = sprintPath.split("\\").pop() || sprintPath;
+        const isCurrent = selectedSprintPath.value === sprintPath;
+        return {
+          label: name,
+          icon:
+            isCurrent ? "i-lucide-calendar-check" : "i-lucide-calendar-range",
+          onSelect: () => {
+            selectedSprintPath.value = sprintPath;
+          },
+        };
+      });
+    }
+    teamsGroup.push(teamItem);
+  }
 
-function formatSprintRange(sprint?: AzureSprint): string {
-  if (!sprint) return "No sprint selected";
-  if (!sprint.startDate && !sprint.finishDate)
-    return sprint.timeFrame || "No date range";
-  const start = sprint.startDate ? formatDate(sprint.startDate) : "N/A";
-  const finish = sprint.finishDate ? formatDate(sprint.finishDate) : "N/A";
-  return `${start} - ${finish}`;
-}
+  const pbiGroup: NavigationMenuItem[] = [];
+  if (selectedSprint.value) {
+    pbiGroup.push({
+      label: `${selectedSprint.value.name} (${sprintItems.value.length})`,
+      type: "label",
+    });
+    if (sprintItemsPending.value) {
+      pbiGroup.push({
+        label: "Loading...",
+        icon: "i-lucide-loader",
+        disabled: true,
+      });
+    } else {
+      for (const item of sprintItems.value.slice(0, 12)) {
+        pbiGroup.push({
+          label: `#${item.id} ${item.title}`,
+          icon: "i-lucide-circle-dot",
+        });
+      }
+    }
+  }
+
+  return [
+    [
+      {
+        label: "All Task",
+        icon: "i-lucide-list-filter",
+        active: activeSection.value === "tasks",
+        onSelect: async () => await goToSection("tasks"),
+      },
+      {
+        label: "Overview",
+        icon: "i-lucide-chart-no-axes-column",
+        active: activeSection.value === "report",
+        onSelect: async () => await goToSection("report"),
+      },
+    ],
+    ...(teamOptions.value.length ? [teamsGroup] : []),
+    ...(pbiGroup.length ? [pbiGroup] : []),
+  ];
+});
 </script>
 
 <template>
@@ -360,25 +408,10 @@ function formatSprintRange(sprint?: AzureSprint): string {
       <template #default="{ collapsed }">
         <UNavigationMenu
           :collapsed="collapsed"
-          :items="viewNavigation[0]"
+          :items="viewNavigation"
           orientation="vertical"
           tooltip
           class="mt-3"
-        />
-        <SidebarSprintsCard
-          v-if="!collapsed"
-          :selected-team="selectedTeam"
-          :selected-sprint-path="selectedSprintPath"
-          :team-options="teamOptions"
-          :sprint-options="sprintOptions"
-          :teams-pending="teamsPending"
-          :sprints-pending="sprintsPending"
-          :sprint-items-pending="sprintItemsPending"
-          :sprint-items="sprintItems"
-          :selected-sprint="selectedSprint"
-          :format-sprint-range="formatSprintRange"
-          @update:selected-team="selectedTeam = $event"
-          @update:selected-sprint-path="selectedSprintPath = $event"
         />
       </template>
       <template #footer="{ collapsed }">
