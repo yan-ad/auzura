@@ -8,7 +8,7 @@ import type {
   AzureWorkItem,
 } from "~/types/azure-devops";
 
-type SectionView = "tasks" | "report";
+type SectionView = "tasks" | "report" | "settings";
 
 const route = useRoute();
 const router = useRouter();
@@ -44,6 +44,7 @@ function getRouteParam(value: unknown): string {
 }
 
 function getSectionFromPath(path: string): SectionView {
+  if (path.endsWith("/settings")) return "settings";
   if (path.endsWith("/report")) return "report";
   return "tasks";
 }
@@ -386,6 +387,12 @@ const viewNavigation = computed<NavigationMenuItem[][]>(() => {
         icon: "i-lucide-chart-no-axes-column",
         active: activeSection.value === "report",
         onSelect: async () => await goToSection("report"),
+      },
+      {
+        label: "Settings",
+        icon: "i-lucide-settings-2",
+        active: activeSection.value === "settings",
+        onSelect: async () => await goToSection("settings"),
       },
     ],
     ...(teamOptions.value.length ? [teamsGroup] : []),

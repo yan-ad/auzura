@@ -325,3 +325,20 @@ export async function getDashboardMetrics(
     lastSyncedAt: latest?.cachedAt.toISOString(),
   };
 }
+
+export async function purgeWorkItemCache(
+  userKey: string,
+  organization?: string,
+  project?: string,
+): Promise<number> {
+  if (!userKey) return 0;
+
+  const collection = await getWorkItemCacheCollection();
+  const result = await collection.deleteMany({
+    userKey,
+    ...(organization ? { organization } : {}),
+    ...(project ? { project } : {}),
+  });
+
+  return result.deletedCount;
+}

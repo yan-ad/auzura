@@ -1,0 +1,315 @@
+<script setup lang="ts">
+const route = useRoute();
+const toast = useToast();
+
+const organization = computed(() =>
+  String(route.params.organization || "").trim(),
+);
+const project = computed(() => String(route.params.project || "").trim());
+
+const {
+  data: aboutData,
+  refresh: refreshAbout,
+  pending: aboutPending,
+} = await useFetch<{
+  azureDevOps: {
+    configuredOrganization?: string;
+    currentOrganization?: string;
+    currentProject?: string;
+  };
+  build: {
+    version: string;
+    commit: string;
+    shortCommit: string;
+  };
+  session: {
+    displayName?: string;
+    email?: string;
+    lastLoginAt?: string;
+    tokenExpiresAt?: string;
+    organizationCount: number;
+  };
+}>("/api/settings/about", {
+  query: computed(() => ({
+    organization: organization.value,
+    project: project.value,
+  })),
+});
+
+const resyncPending = ref(false);
+const purgePending = ref(false);
+const resyncResult = ref<null | {
+  syncedAt: string;
+  teamCount: number;
+  sprintCount: number;
+  teams: Array<{ team: string; sprintCount: number }>;
+}>(null);
+const purgeResult = ref<null | {
+  scope: string;
+  deletedProjects: number;
+  deletedWorkItems: number;
+  deletedUsers: number;
+}>(null);
+
+function formatDateTime(value?: string) {
+  if (!value) return "—";
+  return new Intl.DateTimeFormat("en", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
+}
+
+async function resyncSprints() {
+  resyncPending.value = true;
+
+  try {
+    const response = await $fetch<typeof resyncResult.value>(
+      "/api/settings/resync-sprints",
+      {
+        method: "POST",
+        body: {
+          organization: organization.value,
+          project: project.value,
+        },
+      },
+    );
+
+    resyncResult.value = response;
+    await refreshNuxtData();
+    toast.add({
+      title: "Sprint data re-synced",
+      description: `${response?.teamCount || 0} teams and ${response?.sprintCount || 0} sprint iterations refreshed.`,
+      color: "success",
+    });
+  } catch (error) {
+    toast.add({
+      title: "Re-sync failed",
+      description:
+        error instanceof Error ?
+          error.message
+        : "Could not refresh sprint data.",
+      color: "error",
+    });
+  } finally {
+    resyncPending.value = false;
+  }
+}
+
+async function purgeCache(scope: "workspace" | "all") {
+  purgePending.value = true;
+
+  try {
+    const response = await $fetch<typeof purgeResult.value>(
+      "/api/settings/purge-cache",
+      {
+        method: "POST",
+        body: {
+          organization: organization.value,
+          project: project.value,
+          scope,
+        },
+      },
+    );
+
+    purgeResult.value = response;
+    await refreshNuxtData();
+    await refreshAbout();
+    toast.add({
+      title: "Cache purged",
+      description: `Removed ${response?.deletedWorkItems || 0} work items and ${response?.deletedProjects || 0} project snapshots.`,
+      color: "success",
+    });
+  } catch (error) {
+    toast.add({
+      title: "Purge failed",
+      description:
+        error instanceof Error ? error.message : "Could not purge cache.",
+      color: "error",
+    });
+  } finally {
+    purgePending.value = false;
+  }
+}
+</script>
+
+<template>
+  <div class="min-h-screen bg-default">
+    <div
+      class="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8"
+    >
+      <div class="space-y-2">
+        <p class="text-sm uppercase tracking-[0.24em] text-muted">
+          Workspace settings
+        </p>
+        <h1 class="text-2xl font-semibold text-highlighted">{{ project }}</h1>
+        <p class="text-sm text-muted">
+          Maintain sprint synchronization, clear cached data, and inspect
+          current Azure DevOps build metadata.
+        </p>
+      </div>
+
+      <div class="grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,.8fr)]">
+        <UCard>
+          <template #header>
+            <div class="space-y-1">
+              <h2 class="text-base font-semibold text-highlighted">
+                Sprint sync
+              </h2>
+              <p class="text-sm text-muted">
+                Force refresh team list and sprint iterations from Azure DevOps.
+              </p>
+            </div>
+          </template>
+
+          <div class="space-y-4">
+            <div class="rounded-lg border border-default bg-elevated/40 p-4">
+              <p class="text-sm text-muted">Organization</p>
+              <p class="text-sm font-medium text-highlighted">
+                {{ organization }}
+              </p>
+            </div>
+
+            <UButton
+              color="primary"
+              :loading="resyncPending"
+              @click="resyncSprints"
+            >
+              Re-sync teams and sprint iterations
+            </UButton>
+
+            <div
+              v-if="resyncResult"
+              class="rounded-lg border border-default bg-elevated/40 p-4 text-sm"
+            >
+              <p class="font-medium text-highlighted">
+                Last sync: {{ formatDateTime(resyncResult.syncedAt) }}
+              </p>
+              <p class="mt-1 text-muted">
+                {{ resyncResult.teamCount }} teams,
+                {{ resyncResult.sprintCount }} sprint iterations
+              </p>
+              <ul class="mt-3 space-y-1 text-muted">
+                <li v-for="team in resyncResult.teams" :key="team.team">
+                  {{ team.team }}: {{ team.sprintCount }} sprints
+                </li>
+              </ul>
+            </div>
+          </div>
+        </UCard>
+
+        <UCard>
+          <template #header>
+            <div class="space-y-1">
+              <h2 class="text-base font-semibold text-highlighted">
+                Cache maintenance
+              </h2>
+              <p class="text-sm text-muted">
+                Delete stale Mongo cache for this workspace or your full account
+                snapshot.
+              </p>
+            </div>
+          </template>
+
+          <div class="space-y-3">
+            <UButton
+              color="warning"
+              variant="soft"
+              :loading="purgePending"
+              @click="purgeCache('workspace')"
+            >
+              Purge workspace cache
+            </UButton>
+            <UButton
+              color="error"
+              variant="soft"
+              :loading="purgePending"
+              @click="purgeCache('all')"
+            >
+              Purge all my cache
+            </UButton>
+
+            <div
+              v-if="purgeResult"
+              class="rounded-lg border border-default bg-elevated/40 p-4 text-sm text-muted"
+            >
+              <p class="font-medium text-highlighted">
+                Last purge scope: {{ purgeResult.scope }}
+              </p>
+              <p>Projects removed: {{ purgeResult.deletedProjects }}</p>
+              <p>Work items removed: {{ purgeResult.deletedWorkItems }}</p>
+              <p>User documents removed: {{ purgeResult.deletedUsers }}</p>
+            </div>
+          </div>
+        </UCard>
+      </div>
+
+      <UCard>
+        <template #header>
+          <div class="space-y-1">
+            <h2 class="text-base font-semibold text-highlighted">About</h2>
+            <p class="text-sm text-muted">
+              Current Azure DevOps connection and deployed build details.
+            </p>
+          </div>
+        </template>
+
+        <div v-if="aboutPending" class="text-sm text-muted">
+          Loading build metadata...
+        </div>
+        <div v-else class="grid gap-4 md:grid-cols-3">
+          <div class="rounded-lg border border-default bg-elevated/40 p-4">
+            <p class="text-xs uppercase tracking-[0.18em] text-muted">
+              Azure DevOps
+            </p>
+            <p class="mt-2 text-sm font-medium text-highlighted">
+              {{ aboutData?.azureDevOps.currentOrganization || organization }}
+            </p>
+            <p class="text-sm text-muted">
+              Project: {{ aboutData?.azureDevOps.currentProject || project }}
+            </p>
+            <p class="text-sm text-muted">
+              Configured org:
+              {{ aboutData?.azureDevOps.configuredOrganization || "—" }}
+            </p>
+          </div>
+
+          <div class="rounded-lg border border-default bg-elevated/40 p-4">
+            <p class="text-xs uppercase tracking-[0.18em] text-muted">Build</p>
+            <p class="mt-2 text-sm font-medium text-highlighted">
+              v{{ aboutData?.build.version || "0.0.0" }}
+            </p>
+            <p class="text-sm text-muted">
+              Commit: {{ aboutData?.build.shortCommit || "unknown" }}
+            </p>
+            <p class="text-sm text-muted break-all">
+              {{ aboutData?.build.commit || "No commit metadata found" }}
+            </p>
+          </div>
+
+          <div class="rounded-lg border border-default bg-elevated/40 p-4">
+            <p class="text-xs uppercase tracking-[0.18em] text-muted">
+              Session
+            </p>
+            <p class="mt-2 text-sm font-medium text-highlighted">
+              {{ aboutData?.session.displayName || "Unknown user" }}
+            </p>
+            <p class="text-sm text-muted">
+              {{ aboutData?.session.email || "—" }}
+            </p>
+            <p class="text-sm text-muted">
+              Organizations cached:
+              {{ aboutData?.session.organizationCount ?? 0 }}
+            </p>
+            <p class="text-sm text-muted">
+              Last login: {{ formatDateTime(aboutData?.session.lastLoginAt) }}
+            </p>
+            <p class="text-sm text-muted">
+              Token expiry:
+              {{ formatDateTime(aboutData?.session.tokenExpiresAt) }}
+            </p>
+          </div>
+        </div>
+      </UCard>
+    </div>
+  </div>
+</template>

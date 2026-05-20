@@ -158,3 +158,18 @@ export async function setCachedProjects(
     { upsert: true },
   );
 }
+
+export async function purgeCachedProjects(
+  userKey: string,
+  organization?: string,
+): Promise<number> {
+  if (!userKey) return 0;
+
+  const collection = await getCollection();
+  const result = await collection.deleteMany({
+    userKey,
+    ...(organization ? { organization } : {}),
+  });
+
+  return result.deletedCount;
+}

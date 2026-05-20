@@ -169,3 +169,12 @@ export async function rememberOrganization(
     organizations: [organization],
   });
 }
+
+export async function purgeCachedUser(userKey: string): Promise<number> {
+  if (!userKey) return 0;
+
+  const collection = await getCollection();
+  const result = await collection.deleteOne({ userKey });
+
+  return result.deletedCount;
+}
