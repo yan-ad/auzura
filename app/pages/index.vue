@@ -80,7 +80,9 @@ const routeOrganization = computed(() =>
   getRouteParam(route.params.organization),
 );
 const routeProject = computed(() => getRouteParam(route.params.project));
-const activeSection = computed<SectionView>(() => getSectionFromPath(route.path));
+const activeSection = computed<SectionView>(() =>
+  getSectionFromPath(route.path),
+);
 
 if (routeOrganization.value) {
   selectedOrganization.value = routeOrganization.value;
@@ -193,7 +195,11 @@ watch(
 watch(
   [activeOrganization, selectedProject],
   async ([organization, project]) => {
-    const targetPath = buildRoutePath(organization, project || "", activeSection.value);
+    const targetPath = buildRoutePath(
+      organization,
+      project || "",
+      activeSection.value,
+    );
     if (route.path !== targetPath) {
       await router.replace(targetPath);
     }
@@ -491,27 +497,33 @@ const chartSections = computed(() => [
 ]);
 
 async function goToSection(section: SectionView) {
-  const targetPath = buildRoutePath(activeOrganization.value, selectedProject.value || "", section);
+  const targetPath = buildRoutePath(
+    activeOrganization.value,
+    selectedProject.value || "",
+    section,
+  );
   if (route.path !== targetPath) {
     await router.replace(targetPath);
   }
 }
 
-const viewNavigation = computed<NavigationMenuItem[][]>(() => [[
-  {
-    label: "All Task",
-    icon: "i-lucide-list-filter",
-    badge: String(listTotal.value),
-    active: activeSection.value === "tasks",
-    onSelect: async () => await goToSection("tasks"),
-  },
-  {
-    label: "Overview",
-    icon: "i-lucide-chart-no-axes-column",
-    active: activeSection.value === "report",
-    onSelect: async () => await goToSection("report"),
-  },
-]]);
+const viewNavigation = computed<NavigationMenuItem[][]>(() => [
+  [
+    {
+      label: "All Task",
+      icon: "i-lucide-list-filter",
+      badge: String(listTotal.value),
+      active: activeSection.value === "tasks",
+      onSelect: async () => await goToSection("tasks"),
+    },
+    {
+      label: "Overview",
+      icon: "i-lucide-chart-no-axes-column",
+      active: activeSection.value === "report",
+      onSelect: async () => await goToSection("report"),
+    },
+  ],
+]);
 
 function formatDate(value?: string) {
   if (!value) return "—";
@@ -812,11 +824,17 @@ async function openDetail(item: AzureWorkItem) {
           <template #left>
             <UButtonGroup>
               <UButton
-                :icon="activeSection === 'tasks' ? 'i-lucide-list-filter' : 'i-lucide-chart-no-axes-column'"
+                :icon="
+                  activeSection === 'tasks' ?
+                    'i-lucide-list-filter'
+                  : 'i-lucide-chart-no-axes-column'
+                "
                 color="primary"
                 variant="subtle"
               >
-                {{ activeSection === "tasks" ? "All Task" : "Dashboard Overview" }}
+                {{
+                  activeSection === "tasks" ? "All Task" : "Dashboard Overview"
+                }}
               </UButton>
             </UButtonGroup>
           </template>
@@ -830,40 +848,19 @@ async function openDetail(item: AzureWorkItem) {
               placeholder="Project"
               searchable
             />
+            <UButton
+              icon="i-lucide-plus"
+              :disabled="!activeProject"
+              @click="goToSection('tasks')"
+            >
+              New work item
+            </UButton>
           </template>
         </UDashboardToolbar>
       </template>
 
       <template #body>
         <div class="space-y-6">
-          <section class="space-y-3">
-            <UBadge color="primary" variant="soft">
-              {{ activeSection === "tasks" ? "All Task" : "Dashboard Overview" }}
-            </UBadge>
-            <div
-              class="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between"
-            >
-              <div>
-                <h1
-                  class="text-3xl font-semibold tracking-tight text-highlighted sm:text-4xl"
-                >
-                  {{ activeProject || "Pick a project" }}
-                </h1>
-                <p class="mt-2 max-w-2xl text-sm text-muted">
-                  Dashboard buat pantau Azure Boards: assigned items, recent
-                  board, create work item, dan update status tanpa keluar app.
-                </p>
-              </div>
-              <UButton
-                icon="i-lucide-plus"
-                :disabled="!activeProject"
-                @click="goToSection('tasks')"
-              >
-                New work item
-              </UButton>
-            </div>
-          </section>
-
           <UAlert
             v-if="!loggedIn"
             color="warning"
