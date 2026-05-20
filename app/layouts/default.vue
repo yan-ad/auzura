@@ -6,6 +6,7 @@ import {
   buildProjectSectionPath,
   buildProjectStateQuery,
   getProjectSectionFromPath,
+  getRouteProjectParams,
   type ProjectSection,
 } from "~/utils/navigation";
 
@@ -61,10 +62,13 @@ function withOrganizationQuery(path: string) {
   return `${path}${organizationQuery.value ? `&${organizationQuery.value}` : ""}`;
 }
 
-const routeOrganization = computed(() =>
-  getRouteParam(route.params.organization),
+const routeProjectParams = computed(() => getRouteProjectParams(route.path));
+const routeOrganization = computed(
+  () => routeProjectParams.value.organization || getRouteParam(route.params.organization),
 );
-const routeProject = computed(() => getRouteParam(route.params.project));
+const routeProject = computed(
+  () => routeProjectParams.value.project || getRouteParam(route.params.project),
+);
 const routeTeam = computed(() => getRouteParam(route.query.team));
 const routeSprint = computed(() => getRouteParam(route.query.sprint));
 const activeSection = computed<SectionView>(() =>

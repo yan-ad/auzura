@@ -1,9 +1,50 @@
 export type ProjectSection = "tasks" | "report" | "sprint-task" | "settings";
 
+const PROJECT_SECTION_SEGMENTS = new Set<ProjectSection>([
+  "tasks",
+  "report",
+  "sprint-task",
+  "settings",
+]);
+const IGNORED_ASSET_SEGMENTS = new Set(["installHook.js.map"]);
+
+function getPathSegments(path: string): string[] {
+  return path
+    .split("?")[0]
+    ?.split("/")
+    .map((segment) => segment.trim())
+    .filter(Boolean) ?? [];
+}
+
+export function isKnownAssetRequestPath(path: string): boolean {
+  const segments = getPathSegments(path);
+  return segments.length === 1 && IGNORED_ASSET_SEGMENTS.has(segments[0] || "");
+}
+
+export function getRouteProjectParams(path: string): {
+  organization: string;
+  project: string;
+} {
+  if (isKnownAssetRequestPath(path)) {
+    return { organization: "", project: "" };
+  }
+
+  const segments = getPathSegments(path);
+  const [organization = "", project = ""] = segments;
+  return {
+    organization: PROJECT_SECTION_SEGMENTS.has(organization as ProjectSection) ? "" : organization,
+    project: PROJECT_SECTION_SEGMENTS.has(project as ProjectSection) ? "" : project,
+  };
+}
+
 export function getProjectSectionFromPath(path: string): ProjectSection {
-  if (path.endsWith("/settings")) return "settings";
-  if (path.endsWith("/report")) return "report";
-  if (path.endsWith("/sprint-task")) return "sprint-task";
+  const segments = getPathSegments(path);
+  const lastSegment = segments[segments.length - 1] as ProjectSection | undefined;
+
+  if (lastSegment && PROJECT_SECTION_SEGMENTS.has(lastSegment)) {
+    return lastSegment;
+  }
+
   return "tasks";
 }
 
