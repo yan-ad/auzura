@@ -19,7 +19,6 @@ bun run dev
 Fill `.env`:
 
 ```bash
-NUXT_PUBLIC_AZURE_DEVOPS_ORGANIZATION=your-org
 AZURE_TENANT_ID=your-tenant-id
 AZURE_CLIENT_ID=your-client-id
 AZURE_CLIENT_SECRET=your-client-secret
