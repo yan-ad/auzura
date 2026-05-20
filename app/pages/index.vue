@@ -1467,6 +1467,26 @@ async function addOrganization() {
             </div>
           </template>
 
+          <div class="mb-4 grid gap-3 md:grid-cols-2">
+            <USelectMenu
+              v-model="selectedTeam"
+              :items="teamOptions"
+              :loading="teamsPending"
+              placeholder="Team"
+              class="w-full"
+              searchable
+            />
+            <USelectMenu
+              v-model="selectedSprintPath"
+              :items="sprintOptions"
+              :loading="sprintsPending"
+              :disabled="!selectedTeam"
+              placeholder="Sprint iteration"
+              class="w-full"
+              searchable
+            />
+          </div>
+
           <div v-if="sprintItemsPending" class="space-y-3">
             <USkeleton v-for="index in 4" :key="index" class="h-24" />
           </div>

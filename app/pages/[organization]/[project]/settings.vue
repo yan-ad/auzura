@@ -49,6 +49,8 @@ const purgeResult = ref<null | {
   scope: string;
   deletedProjects: number;
   deletedWorkItems: number;
+  deletedSprintTeams: number;
+  deletedSprints: number;
   deletedUsers: number;
 }>(null);
 
@@ -109,8 +111,8 @@ async function resyncSprints() {
     resyncResult.value = response;
     await refreshNuxtData();
     toast.add({
-      title: "Sprint data re-synced",
-      description: `${response?.teamCount || 0} teams and ${response?.sprintCount || 0} sprint iterations refreshed.`,
+      title: "Sprint cache re-synced",
+      description: `${response?.teamCount || 0} teams and ${response?.sprintCount || 0} sprint iterations refreshed from Azure DevOps.`,
       color: "success",
     });
   } catch (error) {
@@ -148,7 +150,7 @@ async function purgeCache(scope: "workspace" | "all") {
     await refreshAbout();
     toast.add({
       title: "Cache purged",
-      description: `Removed ${response?.deletedWorkItems || 0} work items and ${response?.deletedProjects || 0} project snapshots.`,
+      description: `Removed ${response?.deletedWorkItems || 0} work items, ${response?.deletedSprintTeams || 0} team caches, ${response?.deletedSprints || 0} sprint caches, and ${response?.deletedProjects || 0} project snapshots.`,
       color: "success",
     });
   } catch (error) {
@@ -188,7 +190,8 @@ async function purgeCache(scope: "workspace" | "all") {
                 Sprint sync
               </h2>
               <p class="text-sm text-muted">
-                Force refresh team list and sprint iterations from Azure DevOps.
+                Rebuild sprint cache by refreshing team list and sprint
+                iterations from Azure DevOps.
               </p>
             </div>
           </template>
@@ -206,7 +209,7 @@ async function purgeCache(scope: "workspace" | "all") {
               :loading="resyncPending"
               @click="resyncSprints"
             >
-              Re-sync teams and sprint iterations
+              Re-sync sprint cache
             </UButton>
 
             <div
@@ -269,6 +272,10 @@ async function purgeCache(scope: "workspace" | "all") {
               </p>
               <p>Projects removed: {{ purgeResult.deletedProjects }}</p>
               <p>Work items removed: {{ purgeResult.deletedWorkItems }}</p>
+              <p>
+                Sprint team caches removed: {{ purgeResult.deletedSprintTeams }}
+              </p>
+              <p>Sprint caches removed: {{ purgeResult.deletedSprints }}</p>
               <p>User documents removed: {{ purgeResult.deletedUsers }}</p>
             </div>
           </div>
