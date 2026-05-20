@@ -461,12 +461,45 @@ export function getGraphUsersFromResponse(
   return getAzureCollectionItems(response);
 }
 
+function getFirstFieldNumber(
+  fields: Record<string, unknown>,
+  candidates: string[],
+): number | undefined {
+  for (const candidate of candidates) {
+    const value = getFieldNumber(fields, candidate);
+    if (value !== undefined) return value;
+  }
+
+  return undefined;
+}
+
+export function getEstimateFieldValues(fields: Record<string, unknown>): {
+  estimatedStoryPoints?: number;
+  effort?: number;
+} {
+  return {
+    estimatedStoryPoints: getFirstFieldNumber(fields, [
+      "Custom.EstimatedSP",
+      "Custom.Estimated_x0020_SP",
+      "Custom.EstimatedStoryPoints",
+      "Microsoft.VSTS.Scheduling.StoryPoints",
+      "Microsoft.VSTS.Scheduling.OriginalEstimate",
+    ]),
+    effort: getFirstFieldNumber(fields, [
+      "Custom.Effort",
+      "Microsoft.VSTS.Scheduling.Effort",
+      "Microsoft.VSTS.Scheduling.StoryPoints",
+    ]),
+  };
+}
+
 export function normalizeWorkItem(item: AzureWorkItemResponse): AzureWorkItem {
   const fields = item.fields ?? {};
   const tags = String(fields["System.Tags"] ?? "")
     .split(";")
     .map((tag) => tag.trim())
     .filter(Boolean);
+  const estimates = getEstimateFieldValues(fields);
 
   return {
     id: item.id,
@@ -478,8 +511,7 @@ export function normalizeWorkItem(item: AzureWorkItemResponse): AzureWorkItem {
     reason: getFieldString(fields, "System.Reason"),
     priority: getFieldNumber(fields, "Microsoft.VSTS.Common.Priority"),
     severity: getFieldString(fields, "Microsoft.VSTS.Common.Severity"),
-    estimatedStoryPoints: getFieldNumber(fields, "Custom.EstimatedSP"),
-    effort: getFieldNumber(fields, "Custom.Effort"),
+    ...estimates,
     assignedTo: getIdentityDisplayName(fields["System.AssignedTo"]),
     assignedToUniqueName: getIdentityUniqueName(fields["System.AssignedTo"]),
     createdBy: getIdentityDisplayName(fields["System.CreatedBy"]),
@@ -586,13 +618,25 @@ const WORK_ITEM_FIELDS = [
   "Microsoft.VSTS.Common.AcceptanceCriteria",
   "Microsoft.VSTS.Common.Priority",
   "Microsoft.VSTS.Common.Severity",
+];
+
+// Azure DevOps rejects workitemsbatch requests when `fields` contains a
+// custom field that is not defined in the selected organization's process.
+// Keep built-in fields explicit, then fetch process-specific estimate fields
+// opportunistically through `$expand: Links` and normalize whichever exists.
+const OPTIONAL_ESTIMATE_FIELD_CANDIDATES = [
   "Custom.EstimatedSP",
+  "Custom.Estimated_x0020_SP",
+  "Custom.EstimatedStoryPoints",
+  "Microsoft.VSTS.Scheduling.StoryPoints",
+  "Microsoft.VSTS.Scheduling.Effort",
+  "Microsoft.VSTS.Scheduling.OriginalEstimate",
   "Custom.Effort",
 ];
 
 export function buildWorkItemBatchBody(
   ids: number[],
-  options: { includeRelations?: boolean } = {},
+  options: { includeRelations?: boolean; fields?: string[] } = {},
 ): { ids: number[]; fields?: string[]; $expand: "Links" | "Relations" } {
   if (options.includeRelations) {
     return {
@@ -603,7 +647,7 @@ export function buildWorkItemBatchBody(
 
   return {
     ids,
-    fields: WORK_ITEM_FIELDS,
+    fields: options.fields ?? WORK_ITEM_FIELDS,
     $expand: "Links",
   };
 }
@@ -616,7 +660,6 @@ async function fetchWorkItemsByIds(
   if (!ids.length) {
     return [];
   }
-
   const { organization } = getAzureConfig();
   const items: AzureWorkItem[] = [];
 
@@ -633,10 +676,65 @@ async function fetchWorkItemsByIds(
       },
     );
 
-    items.push(...getAzureCollectionItems(batch).map(normalizeWorkItem));
+    const rawItems = getAzureCollectionItems(batch);
+    const optionalFieldValues =
+      options.includeRelations ? new Map<number, Record<string, unknown>>()
+      : await fetchOptionalEstimateFields(project, chunk);
+
+    items.push(
+      ...rawItems.map((item) =>
+        normalizeWorkItem({
+          ...item,
+          fields: {
+            ...(item.fields ?? {}),
+            ...(optionalFieldValues.get(item.id) ?? {}),
+          },
+        }),
+      ),
+    );
   }
 
   return items;
+}
+
+async function fetchOptionalEstimateFields(
+  project: string,
+  ids: number[],
+): Promise<Map<number, Record<string, unknown>>> {
+  const existingFieldValues = new Map<number, Record<string, unknown>>();
+  const candidateFields = [...OPTIONAL_ESTIMATE_FIELD_CANDIDATES];
+
+  for (const candidateField of candidateFields) {
+    try {
+      const batch = await azureFetch<{ value: AzureWorkItemResponse[] }>(
+        getProjectUrl(
+          getAzureConfig().organization,
+          project,
+          `wit/workitemsbatch?api-version=${API_VERSION}`,
+        ),
+        {
+          method: "POST",
+          body: buildWorkItemBatchBody(ids, { fields: ["System.Id", candidateField] }),
+        },
+      );
+
+      for (const item of getAzureCollectionItems(batch)) {
+        const value = item.fields?.[candidateField];
+        if (value === undefined || value === null || value === "") continue;
+
+        existingFieldValues.set(item.id, {
+          ...(existingFieldValues.get(item.id) ?? {}),
+          [candidateField]: value,
+        });
+      }
+    } catch (error) {
+      if (getHttpStatusCode(error) !== 400) {
+        throw error;
+      }
+    }
+  }
+
+  return existingFieldValues;
 }
 
 export async function getCurrentUser(): Promise<{
