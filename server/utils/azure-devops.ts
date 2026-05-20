@@ -1,7 +1,8 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { createError, type H3Event } from 'h3'
-import type { AzureProject, AzureWorkItem, AzureWorkItemInput } from '../../app/types/azure-devops'
+import type { AzureProject, AzureUser, AzureWorkItem, AzureWorkItemInput } from '../../app/types/azure-devops'
 import { getAzureAuthorizationHeader, getAzureDevOpsConnectionDataUrl, getAzureOAuthAccessToken } from './azure-auth'
+import { cacheWorkItemsForDashboard } from './dashboard-metrics'
 
 const API_VERSION = '7.1'
 const azureOrganizationStorage = new AsyncLocalStorage<string>()
@@ -42,6 +43,20 @@ type AzureConnectionDataResponse = {
     properties?: {
       Account?: { $value?: string }
       Mail?: { $value?: string }
+    }
+  }
+}
+
+type AzureGraphUserResponse = {
+  subjectKind?: string
+  displayName?: string
+  principalName?: string
+  mailAddress?: string
+  descriptor?: string
+  url?: string
+  _links?: {
+    avatar?: {
+      href?: string
     }
   }
 }
@@ -151,7 +166,7 @@ function workItemMatchesKeyword(item: AzureWorkItem, keyword: string): boolean {
 
 function paginateWorkItems(items: AzureWorkItem[], filters: WorkItemListFilters): WorkItemListResult {
   const total = items.length
-  const limit = Math.min(Math.max(Number(filters.limit) || 25, 1), 100)
+  const limit = Math.min(Math.max(Number(filters.limit) || 50, 1), 100)
   const offset = Math.max(Number(filters.offset) || 0, 0)
 
   return {
@@ -245,6 +260,10 @@ function getOrganizationUrl(organization: string, path: string): string {
   return `https://dev.azure.com/${organization}/_apis/${path}`
 }
 
+function getVisualStudioGraphUrl(organization: string, path: string): string {
+  return `https://vssps.dev.azure.com/${organization}/_apis/graph/${path}`
+}
+
 function getProjectUrl(organization: string, project: string, path: string): string {
   const encodedProject = encodeURIComponent(project)
   return `https://dev.azure.com/${organization}/${encodedProject}/_apis/${path}`
@@ -281,6 +300,20 @@ export function normalizeProject(project: AzureProjectResponse): AzureProject {
     url: project.url,
     state: project.state,
     visibility: project.visibility
+  }
+}
+
+export function normalizeUser(user: AzureGraphUserResponse): AzureUser | undefined {
+  const displayName = String(user.displayName || user.principalName || user.mailAddress || '').trim()
+
+  if (!displayName) return undefined
+
+  return {
+    displayName,
+    uniqueName: user.principalName,
+    email: user.mailAddress || user.principalName,
+    descriptor: user.descriptor,
+    imageUrl: user._links?.avatar?.href
   }
 }
 
@@ -409,6 +442,19 @@ export async function listProjects(): Promise<AzureProject[]> {
   return response.value.map(normalizeProject)
 }
 
+export async function listUsers(): Promise<AzureUser[]> {
+  const { organization } = getAzureConfig()
+  const response = await azureFetch<{ value: AzureGraphUserResponse[] }>(
+    getVisualStudioGraphUrl(organization, `users?api-version=${API_VERSION}-preview.1`)
+  )
+  const users = response.value
+    .map(normalizeUser)
+    .filter((user): user is AzureUser => Boolean(user))
+    .sort((first, second) => first.displayName.localeCompare(second.displayName))
+
+  return users
+}
+
 function getCurrentUserCandidates(currentUser: { displayName?: string, email?: string }): string[] {
   return [currentUser.email, currentUser.displayName]
     .map((value) => value?.trim())
@@ -459,8 +505,9 @@ export async function listRecentWorkItems(projectInput?: string, filters: WorkIt
   )
 
   const needsLocalFilter = Boolean(filters.assignedTo || filters.createdBy || filters.keyword)
-  const fetchLimit = needsLocalFilter ? 500 : Math.max((filters.offset || 0) + (filters.limit || 25), 25)
+  const fetchLimit = needsLocalFilter ? 500 : Math.max((filters.offset || 0) + (filters.limit || 50), 50)
   const items = await fetchWorkItemsByIds(project, wiql.workItems.slice(0, fetchLimit).map((item) => item.id))
+  await cacheWorkItemsForDashboard(organization, project, items)
   const filteredItems = applyWorkItemFilters(items, filters, currentUserCandidates)
 
   return paginateWorkItems(filteredItems, filters)

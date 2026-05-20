@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildWorkItemsWiql, chunkWorkItemIds, isAssignedToCandidate, isCreatedByCandidate } from './azure-devops'
+import { buildWorkItemsWiql, chunkWorkItemIds, isAssignedToCandidate, isCreatedByCandidate, normalizeUser } from './azure-devops'
 
 describe('buildWorkItemsWiql', () => {
   it('uses Azure DevOps @project context instead of interpolating a project literal', () => {
@@ -39,5 +39,23 @@ describe('isCreatedByCandidate', () => {
   it('matches normalized creator display name against selected member candidates', () => {
     expect(isCreatedByCandidate({ createdBy: 'Yan Aditia' }, ['yan.aditia@example.com'])).toBe(true)
     expect(isCreatedByCandidate({ createdBy: 'Other User' }, ['Yan Aditia'])).toBe(false)
+  })
+})
+
+describe('normalizeUser', () => {
+  it('maps Azure Graph user identities for dropdown filters', () => {
+    expect(normalizeUser({
+      displayName: 'Yan Aditia',
+      principalName: 'yan@example.com',
+      mailAddress: 'yan@example.com',
+      descriptor: 'aad.yan',
+      _links: { avatar: { href: 'https://example.com/avatar.png' } }
+    })).toEqual({
+      displayName: 'Yan Aditia',
+      uniqueName: 'yan@example.com',
+      email: 'yan@example.com',
+      descriptor: 'aad.yan',
+      imageUrl: 'https://example.com/avatar.png'
+    })
   })
 })

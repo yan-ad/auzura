@@ -47,3 +47,11 @@ export interface AzureProject {
   state?: string
   visibility?: string
 }
+
+export interface AzureUser {
+  displayName: string
+  uniqueName?: string
+  email?: string
+  descriptor?: string
+  imageUrl?: string
+}

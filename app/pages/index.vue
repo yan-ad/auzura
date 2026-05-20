@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { NavigationMenuItem } from '@nuxt/ui'
-import type { AzureProject, AzureWorkItem } from '~/types/azure-devops'
+import type { AzureProject, AzureUser, AzureWorkItem } from '~/types/azure-devops'
 
 const toast = useToast()
 const states = ['New', 'Active', 'Resolved', 'Closed']
@@ -13,7 +13,8 @@ const isDetailOpen = ref(false)
 const { loggedIn, user, fetch: refreshSession } = useUserSession()
 const filterModes = ['me', 'member']
 const listPage = ref(1)
-const itemsPerPage = 25
+const itemsPerPageOptions = [25, 50, 100]
+const itemsPerPage = ref(50)
 const searchKeyword = ref('')
 const assignedFilterMode = ref<'me' | 'member'>('me')
 const assignedMember = ref('')
@@ -42,6 +43,16 @@ const projectOptions = computed(() => projects.value.map((project) => project.na
 const activeProject = computed(() => selectedProject.value || projectOptions.value[0] || '')
 const canLoadAzure = computed(() => loggedIn.value)
 
+const usersUrl = computed(() => withOrganizationQuery('/api/azure/users?'))
+const { data: usersData, pending: usersPending, error: usersError, refresh: refreshUsers } = await useFetch<{ users: AzureUser[] }>(usersUrl, {
+  immediate: false,
+  watch: false
+})
+const users = computed(() => usersData.value?.users ?? [])
+const userOptions = computed(() => users.value.map((azureUser) => azureUser.email && azureUser.email !== azureUser.displayName
+  ? `${azureUser.displayName} <${azureUser.email}>`
+  : azureUser.displayName))
+
 watch([activeOrganization, canLoadAzure], async ([, isLoggedIn]) => {
   selectedProject.value = ''
 
@@ -51,7 +62,10 @@ watch([activeOrganization, canLoadAzure], async ([, isLoggedIn]) => {
     return
   }
 
-  await refreshProjects()
+  await Promise.all([
+    refreshProjects(),
+    refreshUsers()
+  ])
 }, { immediate: true })
 
 watch(projectOptions, (options) => {
@@ -86,8 +100,8 @@ const boardUrl = computed(() => withOrganizationQuery(appendQuery(`/api/azure/wo
   assignedTo: assignedFilterValue.value,
   createdBy: createdFilterValue.value,
   keyword: searchKeyword.value.trim(),
-  offset: (listPage.value - 1) * itemsPerPage,
-  limit: itemsPerPage
+  offset: (listPage.value - 1) * itemsPerPage.value,
+  limit: itemsPerPage.value
 })))
 const detailUrl = computed(() => selectedItemId.value && activeProject.value
   ? withOrganizationQuery(`/api/azure/work-items/${selectedItemId.value}?project=${encodeURIComponent(activeProject.value)}`)
@@ -100,7 +114,22 @@ type WorkItemListResponse = {
   limit: number
 }
 
+type DashboardMetrics = {
+  total: number
+  byState: Array<{ label: string, count: number, percent: number }>
+  byType: Array<{ label: string, count: number, percent: number }>
+  byAssignee: Array<{ label: string, count: number, percent: number }>
+  freshness: Array<{ label: string, count: number, percent: number }>
+  lastSyncedAt?: string
+}
+
 const { data: boardData, pending: boardPending, error: boardError, refresh: refreshBoard } = await useFetch<WorkItemListResponse>(boardUrl, {
+  immediate: false,
+  watch: false
+})
+
+const dashboardUrl = computed(() => withOrganizationQuery(`/api/azure/dashboard?project=${encodeURIComponent(activeProject.value)}`))
+const { data: dashboardData, refresh: refreshDashboard } = await useFetch<{ metrics: DashboardMetrics }>(dashboardUrl, {
   immediate: false,
   watch: false
 })
@@ -113,26 +142,35 @@ const { data: detailData, pending: detailPending, refresh: refreshDetail } = awa
 watch([activeProject, canLoadAzure], async ([project, isLoggedIn]) => {
   if (project && isLoggedIn) {
     await refreshBoard()
+    await refreshDashboard()
   }
 }, { immediate: true })
 
-watch([searchKeyword, assignedFilterMode, assignedMember, createdFilterMode, createdMember, activeProject], () => {
+watch([searchKeyword, assignedFilterMode, assignedMember, createdFilterMode, createdMember, activeProject, itemsPerPage], () => {
   listPage.value = 1
 })
 
 watch([boardUrl, canLoadAzure], async ([, isLoggedIn]) => {
   if (activeProject.value && isLoggedIn) {
     await refreshBoard()
+    await refreshDashboard()
   }
 })
 
+watch([dashboardUrl, canLoadAzure], async ([, isLoggedIn]) => {
+  if (activeProject.value && isLoggedIn) {
+    await refreshDashboard()
+  }
+})
+
+const dashboardMetrics = computed(() => dashboardData.value?.metrics)
 const boardItems = computed(() => boardData.value?.items ?? [])
 const listTotal = computed(() => boardData.value?.total ?? 0)
-const listPageCount = computed(() => Math.max(Math.ceil(listTotal.value / itemsPerPage), 1))
+const listPageCount = computed(() => Math.max(Math.ceil(listTotal.value / itemsPerPage.value), 1))
 const canGoPrevious = computed(() => listPage.value > 1)
 const canGoNext = computed(() => listPage.value < listPageCount.value)
 const selectedItem = computed(() => detailData.value?.item || boardItems.value.find((item) => item.id === selectedItemId.value))
-const busy = computed(() => boardPending.value || projectsPending.value)
+const busy = computed(() => boardPending.value || projectsPending.value || usersPending.value)
 
 function previousPage() {
   if (canGoPrevious.value) listPage.value -= 1
@@ -153,9 +191,9 @@ const dashboardStats = computed<Array<{
   value: string | number
   tone: 'primary' | 'secondary' | 'success' | 'info' | 'warning' | 'error' | 'neutral'
 }>>(() => [{
-  title: 'All Task',
-  icon: 'i-lucide-list-filter',
-  value: listTotal.value,
+  title: 'Cached tasks',
+  icon: 'i-lucide-database',
+  value: dashboardMetrics.value?.total ?? listTotal.value,
   tone: 'primary'
 }, {
   title: 'This page',
@@ -172,6 +210,24 @@ const dashboardStats = computed<Array<{
   icon: 'i-lucide-building-2',
   value: activeOrganization.value || 'Env default',
   tone: 'neutral'
+}])
+
+const chartSections = computed(() => [{
+  title: 'State breakdown',
+  icon: 'i-lucide-chart-no-axes-column',
+  items: dashboardMetrics.value?.byState ?? []
+}, {
+  title: 'Work item types',
+  icon: 'i-lucide-shapes',
+  items: dashboardMetrics.value?.byType ?? []
+}, {
+  title: 'Top assignees',
+  icon: 'i-lucide-users',
+  items: dashboardMetrics.value?.byAssignee ?? []
+}, {
+  title: 'Freshness',
+  icon: 'i-lucide-clock-3',
+  items: dashboardMetrics.value?.freshness ?? []
 }])
 
 const viewNavigation = computed<NavigationMenuItem[][]>(() => [[{
@@ -203,6 +259,7 @@ function stateColor(state?: string) {
 async function refreshCurrentView() {
   if (!canLoadAzure.value || !activeProject.value) return
   await refreshBoard()
+  await refreshDashboard()
   if (selectedItemId.value) {
     await refreshDetail()
   }
@@ -463,23 +520,32 @@ async function openDetail(item: AzureWorkItem) {
             :description="boardError.message"
           />
 
-          <UPageGrid class="gap-4 sm:grid-cols-2 lg:grid-cols-4 lg:gap-px">
+          <UAlert
+            v-if="usersError"
+            color="warning"
+            variant="soft"
+            icon="i-lucide-users-round"
+            title="User list failed"
+            :description="`${usersError.message}. Filter member masih bisa diketik manual.`"
+          />
+
+          <UPageGrid class="gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <UPageCard
-              v-for="(stat, index) in dashboardStats"
+              v-for="stat in dashboardStats"
               :key="stat.title"
               :icon="stat.icon"
               :title="stat.title"
               variant="subtle"
               :ui="{
-                container: 'gap-y-1.5',
+                container: 'gap-y-1',
                 wrapper: 'items-start',
-                leading: 'p-2.5 rounded-full bg-primary/10 ring ring-inset ring-primary/25',
+                leading: 'p-2 rounded-full bg-primary/10 ring ring-inset ring-primary/25',
                 title: 'font-normal text-muted text-xs uppercase'
               }"
-              class="lg:rounded-none first:rounded-l-lg last:rounded-r-lg hover:z-1"
+              class="min-h-0"
             >
               <div class="flex items-center gap-2">
-                <span class="truncate text-2xl font-semibold text-highlighted">
+                <span class="truncate text-xl font-semibold text-highlighted">
                   {{ stat.value }}
                 </span>
                 <UBadge :color="stat.tone" variant="subtle" class="text-xs">
@@ -488,6 +554,45 @@ async function openDetail(item: AzureWorkItem) {
               </div>
             </UPageCard>
           </UPageGrid>
+
+          <UCard variant="subtle">
+            <template #header>
+              <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h2 class="text-lg font-semibold text-highlighted">Dashboard graphics</h2>
+                  <p class="text-sm text-muted">
+                    SQLite cache{{ dashboardMetrics?.lastSyncedAt ? ` · synced ${formatDate(dashboardMetrics.lastSyncedAt)}` : ' · refresh All Task dulu buat seed data' }}
+                  </p>
+                </div>
+                <UBadge color="neutral" variant="soft">SQLite</UBadge>
+              </div>
+            </template>
+
+            <div class="grid gap-4 lg:grid-cols-2">
+              <div v-for="section in chartSections" :key="section.title" class="rounded-xl border border-default bg-default/40 p-4">
+                <div class="mb-4 flex items-center gap-2">
+                  <UIcon :name="section.icon" class="size-4 text-primary" />
+                  <h3 class="text-sm font-semibold text-highlighted">{{ section.title }}</h3>
+                </div>
+
+                <div v-if="section.items.length" class="space-y-3">
+                  <div v-for="item in section.items" :key="item.label" class="space-y-1.5">
+                    <div class="flex items-center justify-between gap-3 text-sm">
+                      <span class="truncate text-toned">{{ item.label }}</span>
+                      <span class="font-medium text-highlighted">{{ item.count }}</span>
+                    </div>
+                    <div class="h-2 overflow-hidden rounded-full bg-elevated">
+                      <div class="h-full rounded-full bg-primary transition-all" :style="{ width: `${Math.max(item.percent, 4)}%` }" />
+                    </div>
+                  </div>
+                </div>
+
+                <p v-else class="rounded-lg border border-dashed border-default p-6 text-center text-sm text-muted">
+                  Belum ada cache. Refresh All Task dulu buat populate SQLite.
+                </p>
+              </div>
+            </div>
+          </UCard>
 
           <UCard variant="subtle">
             <template #header>
@@ -503,21 +608,41 @@ async function openDetail(item: AzureWorkItem) {
                 </div>
 
                 <div class="grid gap-3 lg:grid-cols-12">
-                  <UFormField label="Search" class="lg:col-span-4">
+                  <UFormField label="Search" class="lg:col-span-3">
                     <UInput v-model="searchKeyword" icon="i-lucide-search" placeholder="Keyword atau #383" />
                   </UFormField>
 
-                  <UFormField label="Assigned to" class="lg:col-span-4">
+                  <UFormField label="Per page" class="lg:col-span-2">
+                    <USelect v-model="itemsPerPage" :items="itemsPerPageOptions" />
+                  </UFormField>
+
+                  <UFormField label="Assigned to" class="lg:col-span-3">
                     <div class="flex gap-2">
                       <USelect v-model="assignedFilterMode" :items="filterModes" class="w-28" />
-                      <UInput v-model="assignedMember" icon="i-lucide-user" placeholder="member name/email" :disabled="assignedFilterMode === 'me'" />
+                      <UInputMenu
+                        v-model="assignedMember"
+                        icon="i-lucide-user"
+                        :items="userOptions"
+                        :loading="usersPending"
+                        placeholder="member name/email"
+                        :disabled="assignedFilterMode === 'me'"
+                        create-item
+                      />
                     </div>
                   </UFormField>
 
                   <UFormField label="Created by" class="lg:col-span-4">
                     <div class="flex gap-2">
                       <USelect v-model="createdFilterMode" :items="filterModes" class="w-28" />
-                      <UInput v-model="createdMember" icon="i-lucide-user-pen" placeholder="member name/email" :disabled="createdFilterMode === 'me'" />
+                      <UInputMenu
+                        v-model="createdMember"
+                        icon="i-lucide-user-pen"
+                        :items="userOptions"
+                        :loading="usersPending"
+                        placeholder="member name/email"
+                        :disabled="createdFilterMode === 'me'"
+                        create-item
+                      />
                     </div>
                   </UFormField>
                 </div>
