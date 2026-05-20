@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildWorkItemBatchBody, buildProjectTeamsUrl, buildWorkItemsWiql, chunkWorkItemIds, getRelationTargetIds, groupWorkItemRelations, isAssignedToCandidate, isCreatedByCandidate, normalizeUser } from './azure-devops'
+import { buildWorkItemBatchBody, buildProjectTeamsUrl, buildWorkItemsWiql, chunkWorkItemIds, getGraphUsersFromResponse, getRelationTargetIds, groupWorkItemRelations, isAssignedToCandidate, isCreatedByCandidate, normalizeUser } from './azure-devops'
 
 describe('buildWorkItemsWiql', () => {
   it('uses Azure DevOps @project context instead of interpolating a project literal', () => {
@@ -63,6 +63,16 @@ describe('normalizeUser', () => {
       descriptor: 'aad.yan',
       imageUrl: 'https://example.com/avatar.png'
     })
+  })
+})
+
+describe('getGraphUsersFromResponse', () => {
+  it('accepts both Azure Graph value and legacy members response shapes', () => {
+    const graphUser = { displayName: 'Yan Aditia', principalName: 'yan@example.com' }
+
+    expect(getGraphUsersFromResponse({ value: [graphUser] })).toEqual([graphUser])
+    expect(getGraphUsersFromResponse({ members: [graphUser] })).toEqual([graphUser])
+    expect(getGraphUsersFromResponse({})).toEqual([])
   })
 })
 

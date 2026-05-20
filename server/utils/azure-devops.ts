@@ -72,7 +72,7 @@ type AzureAccountResponse = {
   organizationName?: string;
 };
 
-type AzureGraphUserResponse = {
+export type AzureGraphUserResponse = {
   subjectKind?: string;
   displayName?: string;
   principalName?: string;
@@ -84,6 +84,11 @@ type AzureGraphUserResponse = {
       href?: string;
     };
   };
+};
+
+type AzureGraphUsersResponse = {
+  value?: AzureGraphUserResponse[];
+  members?: AzureGraphUserResponse[];
 };
 
 type AzureTeamResponse = {
@@ -434,6 +439,14 @@ export function normalizeUser(
   };
 }
 
+export function getGraphUsersFromResponse(
+  response?: AzureGraphUsersResponse,
+): AzureGraphUserResponse[] {
+  if (Array.isArray(response?.value)) return response.value;
+  if (Array.isArray(response?.members)) return response.members;
+  return [];
+}
+
 export function normalizeWorkItem(item: AzureWorkItemResponse): AzureWorkItem {
   const fields = item.fields ?? {};
   const tags = String(fields["System.Tags"] ?? "")
@@ -679,10 +692,10 @@ export async function listProjects(): Promise<AzureProject[]> {
 
 export async function listUsers(): Promise<AzureUser[]> {
   const { organization } = getAzureConfig();
-  let response: { value: AzureGraphUserResponse[] };
+  let response: AzureGraphUsersResponse;
 
   try {
-    response = await azureFetch<{ value: AzureGraphUserResponse[] }>(
+    response = await azureFetch<AzureGraphUsersResponse>(
       getVisualStudioGraphUrl(
         organization,
         `users?api-version=${API_VERSION}-preview.1`,
@@ -709,7 +722,7 @@ export async function listUsers(): Promise<AzureUser[]> {
     throw error;
   }
 
-  const users = response.value
+  const users = getGraphUsersFromResponse(response)
     .map(normalizeUser)
     .filter((user): user is AzureUser => Boolean(user))
     .sort((first, second) =>
