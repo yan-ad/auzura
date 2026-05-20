@@ -1,58 +1,74 @@
 <script setup lang="ts">
-import type { DropdownMenuItem } from '@nuxt/ui'
+import type { DropdownMenuItem } from "@nuxt/ui";
 
-defineProps<{
-  loggedIn: boolean
-  displayName?: string
-  email?: string
-  avatarUrl?: string
-  items: DropdownMenuItem[][]
-}>()
+const props = defineProps<{
+  loggedIn: boolean;
+  displayName?: string;
+  email?: string;
+  avatarUrl?: string;
+  collapsed?: boolean;
+  items: DropdownMenuItem[][];
+}>();
 
 function getInitials(displayName?: string, email?: string): string {
-  const source = String(displayName || email || '').trim()
-  if (!source) return 'U'
+  const source = String(displayName || email || "").trim();
+  if (!source) return "U";
 
   const parts = source
-    .replace(/<[^>]+>/g, ' ')
+    .replace(/<[^>]+>/g, " ")
     .split(/\s+/)
-    .filter(Boolean)
+    .filter(Boolean);
 
   if (parts.length >= 2) {
-    return `${parts[0]?.[0] || ''}${parts[1]?.[0] || ''}`.toUpperCase()
+    return `${parts[0]?.[0] || ""}${parts[1]?.[0] || ""}`.toUpperCase();
   }
 
-  return (parts[0]?.slice(0, 2) || 'U').toUpperCase()
+  return (parts[0]?.slice(0, 2) || "U").toUpperCase();
 }
+
+const user = computed(() => ({
+  name: props.displayName || props.email || "User",
+  avatar: {
+    src: props.avatarUrl || "https://github.com/benjamincanac.png",
+    alt: props.displayName || props.email || "User",
+  },
+}));
 </script>
 
 <template>
-  <div class="mt-6 space-y-4 rounded-xl border border-default bg-default/60 p-3">
-    <div class="flex items-center justify-between gap-2">
-      <div class="flex min-w-0 items-center gap-2">
-        <UAvatar
-          :src="avatarUrl"
-          :alt="displayName || email || 'User'"
-          :text="getInitials(displayName, email)"
-          size="sm"
-        />
-        <div class="min-w-0">
-          <p class="truncate text-sm font-medium text-highlighted">
-            {{ loggedIn ? (displayName || email || 'Signed in') : 'Sign in required' }}
-          </p>
-          <p class="truncate text-xs text-muted">{{ email || 'Microsoft account' }}</p>
-        </div>
-      </div>
+  <UDropdownMenu
+    :items="items"
+    :content="{ align: 'center', collisionPadding: 12 }"
+    :ui="{
+      content: collapsed ? 'w-48' : 'w-(--reka-dropdown-menu-trigger-width)',
+    }"
+  >
+    <UButton
+      v-bind="{
+        ...user,
+        label: collapsed ? undefined : user?.name,
+        trailingIcon: collapsed ? undefined : 'i-lucide-chevrons-up-down',
+      }"
+      color="neutral"
+      variant="ghost"
+      block
+      :square="collapsed"
+      class="data-[state=open]:bg-elevated"
+      :ui="{
+        trailingIcon: 'text-dimmed',
+      }"
+    />
 
-      <UDropdownMenu :items="items" :content="{ align: 'end' }">
-        <UButton
-          icon="i-lucide-ellipsis-vertical"
-          color="neutral"
-          variant="ghost"
-          square
-          aria-label="User menu"
+    <template #chip-leading="{ item }">
+      <div class="inline-flex items-center justify-center shrink-0 size-5">
+        <span
+          class="rounded-full ring ring-bg bg-(--chip-light) dark:bg-(--chip-dark) size-2"
+          :style="{
+            '--chip-light': `var(--color-${(item as any).chip}-500)`,
+            '--chip-dark': `var(--color-${(item as any).chip}-400)`,
+          }"
         />
-      </UDropdownMenu>
-    </div>
-  </div>
+      </div>
+    </template>
+  </UDropdownMenu>
 </template>

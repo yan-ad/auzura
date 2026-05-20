@@ -399,12 +399,12 @@ function formatSprintRange(sprint?: AzureSprint): string {
       </template>
       <template #footer="{ collapsed }">
         <SidebarUserMenuCard
-          v-if="!collapsed"
           :logged-in="loggedIn"
           :display-name="user?.displayName"
           :email="user?.email"
           :avatar-url="user?.image"
           :items="userMenuItems"
+          :collapsed="collapsed"
         />
       </template>
     </UDashboardSidebar>
