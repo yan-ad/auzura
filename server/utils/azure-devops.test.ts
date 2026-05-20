@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildWorkItemBatchBody, buildProjectTeamsUrl, buildWorkItemsWiql, chunkWorkItemIds, getGraphUsersFromResponse, getRelationTargetIds, groupWorkItemRelations, isAssignedToCandidate, isCreatedByCandidate, normalizeUser } from './azure-devops'
+import { buildWorkItemBatchBody, buildProjectTeamsUrl, buildWorkItemsWiql, chunkWorkItemIds, getAzureCollectionItems, getGraphUsersFromResponse, getRelationTargetIds, groupWorkItemRelations, isAssignedToCandidate, isCreatedByCandidate, normalizeUser } from './azure-devops'
 
 describe('buildWorkItemsWiql', () => {
   it('uses Azure DevOps @project context instead of interpolating a project literal', () => {
@@ -63,6 +63,17 @@ describe('normalizeUser', () => {
       descriptor: 'aad.yan',
       imageUrl: 'https://example.com/avatar.png'
     })
+  })
+})
+
+describe('getAzureCollectionItems', () => {
+  it('accepts Azure collection variants and returns an empty array for malformed responses', () => {
+    const item = { id: 'project-guid', name: 'OPI Board' }
+
+    expect(getAzureCollectionItems({ value: [item] })).toEqual([item])
+    expect(getAzureCollectionItems({ members: [item] })).toEqual([item])
+    expect(getAzureCollectionItems({ workItems: [item] })).toEqual([item])
+    expect(getAzureCollectionItems({})).toEqual([])
   })
 })
 

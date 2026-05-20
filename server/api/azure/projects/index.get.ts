@@ -20,8 +20,10 @@ export default defineEventHandler(
     const session = await getUserSession(event);
     const owner = getSessionCacheOwner(session.user);
 
+    let cachedProjects: Awaited<ReturnType<typeof getCachedProjects>> = [];
+
     if (!refresh && owner) {
-      const cachedProjects = await getCachedProjects(owner.key, organization);
+      cachedProjects = await getCachedProjects(owner.key, organization);
       if (cachedProjects.length) {
         return { projects: cachedProjects };
       }
@@ -33,8 +35,15 @@ export default defineEventHandler(
       event,
     );
 
+    // Auto-populate the project cache whenever Azure returns fresh data.
+    // If Azure gives an empty or malformed collection but we still have an
+    // older cache snapshot, prefer that stale cache over an empty sidebar.
     if (owner && organization) {
-      await setCachedProjects(owner, organization, projects);
+      if (projects.length) {
+        await setCachedProjects(owner, organization, projects);
+      } else if (cachedProjects.length) {
+        return { projects: cachedProjects };
+      }
     }
 
     return { projects };
