@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { createError, type H3Event } from 'h3'
-import type { AzureProject, AzureUser, AzureWorkItem, AzureWorkItemInput } from '../../app/types/azure-devops'
+import type { AzureProject, AzureSprint, AzureTeam, AzureUser, AzureWorkItem, AzureWorkItemInput } from '../../app/types/azure-devops'
 import { getAzureAuthorizationHeader, getAzureDevOpsConnectionDataUrl, getAzureOAuthAccessToken } from './azure-auth'
 import { cacheWorkItemsForDashboard } from './dashboard-metrics'
 
@@ -69,6 +69,22 @@ type AzureGraphUserResponse = {
     avatar?: {
       href?: string
     }
+  }
+}
+
+type AzureTeamResponse = {
+  id: string
+  name: string
+}
+
+type AzureTeamIterationResponse = {
+  id: string
+  name: string
+  path?: string
+  attributes?: {
+    startDate?: string
+    finishDate?: string
+    timeFrame?: string
   }
 }
 
@@ -519,6 +535,72 @@ export async function listUsers(): Promise<AzureUser[]> {
     .sort((first, second) => first.displayName.localeCompare(second.displayName))
 
   return users
+}
+
+export async function listProjectTeams(projectInput?: string): Promise<AzureTeam[]> {
+  const project = assertProject(projectInput)
+  const { organization } = getAzureConfig()
+  const response = await azureFetch<{ value: AzureTeamResponse[] }>(
+    getProjectUrl(organization, project, `teams?api-version=${API_VERSION}`)
+  )
+
+  return response.value.map((team) => ({
+    id: team.id,
+    name: team.name
+  }))
+}
+
+export async function listTeamSprints(projectInput?: string, teamInput?: string): Promise<AzureSprint[]> {
+  const project = assertProject(projectInput)
+  const team = String(teamInput || '').trim()
+  const { organization } = getAzureConfig()
+
+  if (!team) {
+    return []
+  }
+
+  const response = await azureFetch<{ value: AzureTeamIterationResponse[] }>(
+    `https://dev.azure.com/${organization}/${encodeURIComponent(project)}/${encodeURIComponent(team)}/_apis/work/teamsettings/iterations?api-version=${API_VERSION}`
+  )
+
+  return response.value.map((iteration) => ({
+    id: iteration.id,
+    name: iteration.name,
+    path: iteration.path || iteration.name,
+    startDate: iteration.attributes?.startDate,
+    finishDate: iteration.attributes?.finishDate,
+    timeFrame: iteration.attributes?.timeFrame
+  }))
+}
+
+export async function listSprintPbis(projectInput?: string, iterationPathInput?: string): Promise<AzureWorkItem[]> {
+  const project = assertProject(projectInput)
+  const iterationPath = String(iterationPathInput || '').trim()
+  const { organization } = getAzureConfig()
+
+  if (!iterationPath) {
+    return []
+  }
+
+  const escapedPath = escapeWiqlString(iterationPath)
+  const wiql = await azureFetch<{ workItems: Array<{ id: number }> }>(
+    getProjectUrl(organization, project, `wit/wiql?api-version=${API_VERSION}`),
+    {
+      method: 'POST',
+      body: {
+        query: `
+          SELECT [System.Id]
+          FROM WorkItems
+          WHERE [System.TeamProject] = @project
+            AND [System.IterationPath] = '${escapedPath}'
+            AND [System.WorkItemType] IN ('Product Backlog Item', 'User Story')
+          ORDER BY [System.ChangedDate] DESC
+        `
+      }
+    }
+  )
+
+  return await fetchWorkItemsByIds(project, wiql.workItems.map((item) => item.id))
 }
 
 function getCurrentUserCandidates(currentUser: { displayName?: string, email?: string }): string[] {

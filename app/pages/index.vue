@@ -3,12 +3,15 @@ import type { DropdownMenuItem, NavigationMenuItem } from "@nuxt/ui";
 import type {
   AzureOrganization,
   AzureProject,
+  AzureSprint,
+  AzureTeam,
   AzureUser,
   AzureWorkItem,
 } from "~/types/azure-devops";
 
 type IdentityFilterMode = "anyone" | "me" | "members";
 type SectionView = "tasks" | "report";
+definePageMeta({ layout: "dashboard" });
 
 const toast = useToast();
 const route = useRoute();
@@ -23,6 +26,8 @@ const selectedProject = useCookie<string>("auzura:selected-project", {
 });
 const selectedItemId = ref<number | null>(null);
 const isDetailOpen = ref(false);
+const selectedTeam = useCookie<string>("auzura:selected-team", { default: () => "" });
+const selectedSprintPath = useCookie<string>("auzura:selected-sprint-path", { default: () => "" });
 const { loggedIn, user, fetch: refreshSession } = useUserSession();
 const filterModes = [
   { label: "Anyone", value: "anyone" },
@@ -195,6 +200,56 @@ const userOptions = computed(() =>
   ),
 );
 
+const teamsUrl = computed(() =>
+  withOrganizationQuery(
+    `/api/azure/teams?project=${encodeURIComponent(activeProject.value)}`,
+  ),
+);
+const {
+  data: teamsData,
+  pending: teamsPending,
+  refresh: refreshTeams,
+} = await useFetch<{ teams: AzureTeam[] }>(teamsUrl, {
+  immediate: false,
+  watch: false,
+});
+const teams = computed(() => teamsData.value?.teams ?? []);
+const teamOptions = computed(() => teams.value.map((team) => team.name));
+
+const sprintsUrl = computed(() =>
+  withOrganizationQuery(
+    `/api/azure/sprints?project=${encodeURIComponent(activeProject.value)}&team=${encodeURIComponent(selectedTeam.value)}`,
+  ),
+);
+const {
+  data: sprintsData,
+  pending: sprintsPending,
+  refresh: refreshSprints,
+} = await useFetch<{ sprints: AzureSprint[] }>(sprintsUrl, {
+  immediate: false,
+  watch: false,
+});
+const sprints = computed(() => sprintsData.value?.sprints ?? []);
+const sprintOptions = computed(() => sprints.value.map((sprint) => sprint.path));
+const selectedSprint = computed(() =>
+  sprints.value.find((sprint) => sprint.path === selectedSprintPath.value),
+);
+
+const sprintItemsUrl = computed(() =>
+  withOrganizationQuery(
+    `/api/azure/sprints/work-items?project=${encodeURIComponent(activeProject.value)}&iterationPath=${encodeURIComponent(selectedSprintPath.value)}`,
+  ),
+);
+const {
+  data: sprintItemsData,
+  pending: sprintItemsPending,
+  refresh: refreshSprintItems,
+} = await useFetch<{ items: AzureWorkItem[] }>(sprintItemsUrl, {
+  immediate: false,
+  watch: false,
+});
+const sprintItems = computed(() => sprintItemsData.value?.items ?? []);
+
 watch(
   [activeOrganization, canLoadAzure],
   async ([, canLoad]) => {
@@ -273,6 +328,62 @@ watch(
   },
   { immediate: true },
 );
+
+watch([activeProject, canLoadAzure], async ([project, canLoad]) => {
+  if (!project || !canLoad) {
+    teamsData.value = undefined;
+    sprintsData.value = undefined;
+    sprintItemsData.value = undefined;
+    selectedTeam.value = "";
+    selectedSprintPath.value = "";
+    return;
+  }
+
+  await refreshTeams();
+});
+
+watch(teams, async (value) => {
+  if (!value.length) {
+    selectedTeam.value = "";
+    return;
+  }
+
+  if (!selectedTeam.value || !value.some((team) => team.name === selectedTeam.value)) {
+    selectedTeam.value = value[0]?.name || "";
+  }
+
+  if (selectedTeam.value) {
+    await refreshSprints();
+  }
+}, { immediate: true });
+
+watch([selectedTeam, activeProject, canLoadAzure], async ([team, project, canLoad]) => {
+  if (!team || !project || !canLoad) return;
+  await refreshSprints();
+});
+
+watch(sprints, async (value) => {
+  if (!value.length) {
+    selectedSprintPath.value = "";
+    sprintItemsData.value = undefined;
+    return;
+  }
+
+  const currentSprint = value.find((sprint) => sprint.timeFrame === "current");
+  const fallback = currentSprint?.path || value[0]?.path || "";
+  if (!selectedSprintPath.value || !value.some((sprint) => sprint.path === selectedSprintPath.value)) {
+    selectedSprintPath.value = fallback;
+  }
+
+  if (selectedSprintPath.value) {
+    await refreshSprintItems();
+  }
+}, { immediate: true });
+
+watch([selectedSprintPath, activeProject, canLoadAzure], async ([sprintPath, project, canLoad]) => {
+  if (!sprintPath || !project || !canLoad) return;
+  await refreshSprintItems();
+});
 
 function withOrganizationQuery(path: string) {
   return `${path}${organizationQuery.value ? `&${organizationQuery.value}` : ""}`;
@@ -560,7 +671,7 @@ const viewNavigation = computed<NavigationMenuItem[][]>(() => [
   ],
 ]);
 
-const userMenuItems = computed(() => [
+const userMenuItems = computed<DropdownMenuItem[][]>(() => [[
   {
     label: loggedIn.value ? "Switch account" : "Sign in",
     icon: "i-lucide-log-in",
@@ -572,7 +683,7 @@ const userMenuItems = computed(() => [
     disabled: !loggedIn.value,
     onSelect: async () => await logoutFromMicrosoft(),
   },
-]);
+]]);
 
 function formatDate(value?: string) {
   if (!value) return "—";
@@ -580,6 +691,14 @@ function formatDate(value?: string) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));
+}
+
+function formatSprintRange(sprint?: AzureSprint): string {
+  if (!sprint) return "No sprint selected";
+  if (!sprint.startDate && !sprint.finishDate) return sprint.timeFrame || "No date range";
+  const start = sprint.startDate ? formatDate(sprint.startDate) : "N/A";
+  const finish = sprint.finishDate ? formatDate(sprint.finishDate) : "N/A";
+  return `${start} - ${finish}`;
 }
 
 function stripHtml(value?: string) {
@@ -750,138 +869,7 @@ async function addOrganization() {
 </script>
 
 <template>
-  <UDashboardGroup storage="local" storage-key="auzura-dashboard" unit="rem">
-    <UDashboardSidebar
-      id="auzura-sidebar"
-      collapsible
-      resizable
-      class="bg-elevated/40"
-      :ui="{ footer: 'lg:border-t lg:border-default' }"
-    >
-      <template #header="{ collapsed }">
-        <div class="flex min-w-0 items-center gap-3 px-1 py-2">
-          <div
-            class="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 ring ring-primary/25"
-          >
-            <UIcon
-              name="icon-park-solid:speed-one"
-              class="size-5 text-primary"
-            />
-          </div>
-          <div v-if="!collapsed" class="min-w-0">
-            <p class="truncate text-sm font-semibold text-highlighted">
-              Auzura
-            </p>
-            <p class="truncate text-xs text-muted">Azure Boards Cockpit</p>
-          </div>
-        </div>
-      </template>
-
-      <template #default="{ collapsed }">
-        <div
-          v-if="!collapsed"
-          class="rounded-lg border border-default bg-default/60 px-3 py-2 text-xs text-muted"
-        >
-          Switch views and projects from this cockpit.
-        </div>
-
-        <UNavigationMenu
-          :collapsed="collapsed"
-          :items="viewNavigation[0]"
-          orientation="vertical"
-          tooltip
-          class="mt-3"
-        />
-
-        <div
-          v-if="!collapsed"
-          class="mt-6 space-y-4 rounded-xl border border-default bg-default/60 p-3"
-        >
-          <div class="flex items-center justify-between gap-2">
-            <div class="min-w-0">
-              <p class="truncate text-sm font-medium text-highlighted">
-                {{
-                  loggedIn ?
-                    user?.displayName || user?.email || "Signed in"
-                  : "Sign in required"
-                }}
-              </p>
-              <p class="truncate text-xs text-muted">
-                {{ user?.email || "Microsoft account" }}
-              </p>
-            </div>
-
-            <UDropdownMenu
-              :items="userMenuItems"
-              :content="{ align: 'end' }"
-            >
-              <UButton
-                icon="i-lucide-ellipsis-vertical"
-                color="neutral"
-                variant="ghost"
-                square
-                aria-label="User menu"
-              />
-            </UDropdownMenu>
-          </div>
-        </div>
-
-        <div
-          v-if="!collapsed"
-          class="mt-4 space-y-4 rounded-xl border border-default bg-default/60 p-3"
-        >
-          <UFormField label="Workspace" help="Switch organization and project quickly.">
-            <UDropdownMenu
-              :items="organizationProjectMenuItems"
-              :content="{ align: 'start', collisionPadding: 12 }"
-              :ui="{ content: 'w-(--reka-dropdown-menu-trigger-width)' }"
-            >
-              <UButton
-                color="neutral"
-                variant="ghost"
-                block
-                class="data-[state=open]:bg-elevated"
-                :label="activeOrganization || 'Select organization'"
-                :trailing-icon="'i-lucide-chevrons-up-down'"
-                :ui="{ leadingIcon: 'text-dimmed', trailingIcon: 'text-dimmed' }"
-              >
-                <template #leading>
-                  <UIcon name="i-lucide-building-2" class="size-4" />
-                </template>
-              </UButton>
-            </UDropdownMenu>
-          </UFormField>
-        </div>
-
-        <div v-if="!collapsed" class="mt-auto grid grid-cols-2 gap-2">
-          <div
-            v-for="item in assignedByState"
-            :key="item.label"
-            class="rounded-lg border border-default bg-elevated/60 p-3"
-          >
-            <p class="text-xs text-muted">{{ item.label }}</p>
-            <p class="text-xl font-semibold text-highlighted">
-              {{ item.count }}
-            </p>
-          </div>
-        </div>
-      </template>
-
-      <template #footer="{ collapsed }">
-        <UButton
-          :icon="collapsed ? 'i-lucide-refresh-cw' : undefined"
-          :label="collapsed ? undefined : 'Refresh content'"
-          color="neutral"
-          variant="ghost"
-          block
-          :loading="busy"
-          :disabled="!canLoadAzure || !activeProject"
-          @click="refreshCurrentView()"
-        />
-      </template>
-    </UDashboardSidebar>
-
-    <UDashboardPanel id="auzura-main">
+  <UDashboardPanel id="auzura-main">
       <template #header>
         <UDashboardNavbar
           :title="activeProject || 'Azure Boards'"
@@ -1361,7 +1349,7 @@ async function addOrganization() {
           </template>
         </div>
       </template>
-    </UDashboardPanel>
+  </UDashboardPanel>
 
     <UModal
       v-model:open="isDetailOpen"
@@ -1462,29 +1450,4 @@ async function addOrganization() {
         </div>
       </template>
     </UModal>
-  </UDashboardGroup>
-
-  <UModal v-model:open="isAddOrganizationOpen" title="Add organization">
-    <template #body>
-      <div class="space-y-3">
-        <UFormField label="Organization slug" help="Will be validated by fetching project list.">
-          <UInput
-            v-model="newOrganization"
-            icon="i-lucide-building-2"
-            placeholder="your-azure-org"
-          />
-        </UFormField>
-      </div>
-    </template>
-    <template #footer>
-      <div class="flex w-full justify-end gap-2">
-        <UButton color="neutral" variant="ghost" @click="isAddOrganizationOpen = false">
-          Cancel
-        </UButton>
-        <UButton color="primary" :loading="addingOrganization" @click="addOrganization">
-          Validate and add
-        </UButton>
-      </div>
-    </template>
-  </UModal>
 </template>

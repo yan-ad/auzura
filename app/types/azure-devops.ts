@@ -62,3 +62,17 @@ export interface AzureUser {
   descriptor?: string
   imageUrl?: string
 }
+
+export interface AzureTeam {
+  id: string
+  name: string
+}
+
+export interface AzureSprint {
+  id: string
+  name: string
+  path: string
+  startDate?: string
+  finishDate?: string
+  timeFrame?: string
+}
