@@ -62,13 +62,14 @@ describe('getAzureAuthorizationHeader', () => {
 
 describe('getAzureOAuthAccessToken', () => {
   beforeEach(() => {
-    vi.unstubAllGlobals()
+    delete (globalThis as typeof globalThis & { getUserSession?: unknown }).getUserSession
+    delete (globalThis as typeof globalThis & { getRequestHeader?: unknown }).getRequestHeader
   })
 
   it('reads the secure access token from the Nuxt auth session helper', async () => {
-    vi.stubGlobal('getUserSession', vi.fn().mockResolvedValue({
+    ;(globalThis as typeof globalThis & { getUserSession?: unknown }).getUserSession = vi.fn().mockResolvedValue({
       secure: { azureAccessToken: 'oauth-token' }
-    }))
+    })
 
     await expect(getAzureOAuthAccessToken({} as Parameters<typeof getAzureOAuthAccessToken>[0])).resolves.toBe('oauth-token')
   })

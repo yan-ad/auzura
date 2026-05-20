@@ -289,6 +289,10 @@ function getProjectUrl(organization: string, project: string, path: string): str
   return `https://dev.azure.com/${organization}/${encodedProject}/_apis/${path}`
 }
 
+export function buildProjectTeamsUrl(organization: string, projectId: string): string {
+  return getOrganizationUrl(organization, `projects/${encodeURIComponent(projectId)}/teams?api-version=${API_VERSION}`)
+}
+
 function getOrganizationSlug(account: AzureAccountResponse): string {
   const uriSlug = account.accountUri?.match(/^https:\/\/dev\.azure\.com\/([^/]+)/i)?.[1]?.trim()
   const slug = uriSlug || account.accountName || account.organizationName || ''
@@ -540,8 +544,15 @@ export async function listUsers(): Promise<AzureUser[]> {
 export async function listProjectTeams(projectInput?: string): Promise<AzureTeam[]> {
   const project = assertProject(projectInput)
   const { organization } = getAzureConfig()
+  const projects = await listProjects()
+  const projectMatch = projects.find((candidate) => candidate.name === project || candidate.id === project)
+
+  if (!projectMatch) {
+    return []
+  }
+
   const response = await azureFetch<{ value: AzureTeamResponse[] }>(
-    getProjectUrl(organization, project, `teams?api-version=${API_VERSION}`)
+    buildProjectTeamsUrl(organization, projectMatch.id)
   )
 
   return response.value.map((team) => ({

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildWorkItemsWiql, chunkWorkItemIds, isAssignedToCandidate, isCreatedByCandidate, normalizeUser } from './azure-devops'
+import { buildProjectTeamsUrl, buildWorkItemsWiql, chunkWorkItemIds, isAssignedToCandidate, isCreatedByCandidate, normalizeUser } from './azure-devops'
 
 describe('buildWorkItemsWiql', () => {
   it('uses Azure DevOps @project context instead of interpolating a project literal', () => {
@@ -39,6 +39,12 @@ describe('isCreatedByCandidate', () => {
   it('matches normalized creator display name against selected member candidates', () => {
     expect(isCreatedByCandidate({ createdBy: 'Yan Aditia' }, ['yan.aditia@example.com'])).toBe(true)
     expect(isCreatedByCandidate({ createdBy: 'Other User' }, ['Yan Aditia'])).toBe(false)
+  })
+})
+
+describe('buildProjectTeamsUrl', () => {
+  it('uses the organization-level teams endpoint scoped by project id', () => {
+    expect(buildProjectTeamsUrl('KiriminAja2026', 'project-guid')).toBe('https://dev.azure.com/KiriminAja2026/_apis/projects/project-guid/teams?api-version=7.1')
   })
 })
 
