@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { NavigationMenuItem } from "@nuxt/ui";
+import type { DropdownMenuItem, NavigationMenuItem } from "@nuxt/ui";
 import type {
   AzureOrganization,
   AzureProject,
@@ -151,6 +151,30 @@ const organizationItems = computed(() => {
 const isAddOrganizationOpen = ref(false);
 const newOrganization = ref("");
 const addingOrganization = ref(false);
+const organizationProjectMenuItems = computed<DropdownMenuItem[][]>(() => [
+  organizationItems.value.map((organization) => ({
+    label: organization,
+    icon: "i-lucide-building-2",
+    onSelect: () => {
+      selectedOrganization.value = organization;
+      selectedProject.value = "";
+    },
+  })),
+  projectOptions.value.map((project) => ({
+    label: project,
+    icon: "i-lucide-folder-kanban",
+    onSelect: () => {
+      selectedProject.value = project;
+    },
+  })),
+  [{
+    label: "Add organization",
+    icon: "i-lucide-circle-plus",
+    onSelect: () => {
+      isAddOrganizationOpen.value = true;
+    },
+  }],
+]);
 
 const usersUrl = computed(() => withOrganizationQuery("/api/azure/users?"));
 const {
@@ -806,37 +830,26 @@ async function addOrganization() {
           v-if="!collapsed"
           class="mt-4 space-y-4 rounded-xl border border-default bg-default/60 p-3"
         >
-          <UFormField
-            label="Organization"
-            help="Required. Select an organization, or add a new one."
-          >
-            <USelectMenu
-              v-model="selectedOrganization"
-              icon="i-lucide-building-2"
-              :items="organizationItems"
-              placeholder="Select organization"
-              searchable
-            />
-            <UButton
-              class="mt-2"
-              color="neutral"
-              variant="soft"
-              icon="i-lucide-plus"
-              @click="isAddOrganizationOpen = true"
+          <UFormField label="Workspace" help="Switch organization and project quickly.">
+            <UDropdownMenu
+              :items="organizationProjectMenuItems"
+              :content="{ align: 'start', collisionPadding: 12 }"
+              :ui="{ content: 'w-(--reka-dropdown-menu-trigger-width)' }"
             >
-              Add organization
-            </UButton>
-          </UFormField>
-
-          <UFormField label="Project">
-            <USelectMenu
-              v-model="selectedProject"
-              :items="projectOptions"
-              :loading="projectsPending"
-              icon="i-lucide-folder-kanban"
-              placeholder="Select project"
-              searchable
-            />
+              <UButton
+                color="neutral"
+                variant="ghost"
+                block
+                class="data-[state=open]:bg-elevated"
+                :label="activeOrganization || 'Select organization'"
+                :trailing-icon="'i-lucide-chevrons-up-down'"
+                :ui="{ leadingIcon: 'text-dimmed', trailingIcon: 'text-dimmed' }"
+              >
+                <template #leading>
+                  <UIcon name="i-lucide-building-2" class="size-4" />
+                </template>
+              </UButton>
+            </UDropdownMenu>
           </UFormField>
         </div>
 
