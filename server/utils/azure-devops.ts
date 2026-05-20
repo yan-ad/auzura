@@ -86,8 +86,8 @@ export function buildWorkItemsWiql(options: { excludeRemoved?: boolean } = {}): 
 }
 
 export type WorkItemListFilters = {
-  assignedTo?: string
-  createdBy?: string
+  assignedTo?: string | string[]
+  createdBy?: string | string[]
   keyword?: string
   offset?: number
   limit?: number
@@ -461,16 +461,31 @@ function getCurrentUserCandidates(currentUser: { displayName?: string, email?: s
     .filter((value): value is string => Boolean(value))
 }
 
+function normalizeFilterValues(value: string | string[] | undefined): string[] {
+  const values = Array.isArray(value) ? value : [value]
+
+  return values
+    .flatMap((item) => String(item || '').split(','))
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function expandFilterCandidates(values: string[], currentUserCandidates: string[]): string[] {
+  return values.flatMap((value) => value === 'me' ? currentUserCandidates : [value])
+}
+
 function applyWorkItemFilters(items: AzureWorkItem[], filters: WorkItemListFilters, currentUserCandidates: string[]): AzureWorkItem[] {
   let filteredItems = items
+  const assignedToValues = normalizeFilterValues(filters.assignedTo)
+  const createdByValues = normalizeFilterValues(filters.createdBy)
 
-  if (filters.assignedTo) {
-    const candidates = filters.assignedTo === 'me' ? currentUserCandidates : [filters.assignedTo]
+  if (assignedToValues.length) {
+    const candidates = expandFilterCandidates(assignedToValues, currentUserCandidates)
     filteredItems = filteredItems.filter((item) => isAssignedToCandidate(item, candidates))
   }
 
-  if (filters.createdBy) {
-    const candidates = filters.createdBy === 'me' ? currentUserCandidates : [filters.createdBy]
+  if (createdByValues.length) {
+    const candidates = expandFilterCandidates(createdByValues, currentUserCandidates)
     filteredItems = filteredItems.filter((item) => isCreatedByCandidate(item, candidates))
   }
 
@@ -487,7 +502,7 @@ export async function listRecentWorkItems(projectInput?: string, filters: WorkIt
   const currentUser = await getCurrentUser()
   const currentUserCandidates = getCurrentUserCandidates(currentUser)
 
-  if ((filters.assignedTo === 'me' || filters.createdBy === 'me') && !currentUserCandidates.length) {
+  if ((normalizeFilterValues(filters.assignedTo).includes('me') || normalizeFilterValues(filters.createdBy).includes('me')) && !currentUserCandidates.length) {
     throw createError({
       statusCode: 500,
       statusMessage: 'Could not determine the current Azure DevOps user for me filtering.'

@@ -2,6 +2,8 @@
 import type { NavigationMenuItem } from '@nuxt/ui'
 import type { AzureProject, AzureUser, AzureWorkItem } from '~/types/azure-devops'
 
+type IdentityFilterMode = 'anyone' | 'me' | 'members'
+
 const toast = useToast()
 const states = ['New', 'Active', 'Resolved', 'Closed']
 const workItemTypes = ['User Story', 'Task', 'Bug']
@@ -11,15 +13,15 @@ const selectedView = ref<'all'>('all')
 const selectedItemId = ref<number | null>(null)
 const isDetailOpen = ref(false)
 const { loggedIn, user, fetch: refreshSession } = useUserSession()
-const filterModes = ['me', 'member']
+const filterModes = [{ label: 'Anyone', value: 'anyone' }, { label: 'Me', value: 'me' }, { label: 'Members', value: 'members' }]
 const listPage = ref(1)
 const itemsPerPageOptions = [25, 50, 100]
 const itemsPerPage = ref(50)
 const searchKeyword = ref('')
-const assignedFilterMode = ref<'me' | 'member'>('me')
-const assignedMember = ref('')
-const createdFilterMode = ref<'me' | 'member'>('me')
-const createdMember = ref('')
+const assignedFilterMode = ref<IdentityFilterMode>('anyone')
+const assignedMembers = ref<string[]>([])
+const createdFilterMode = ref<IdentityFilterMode>('anyone')
+const createdMembers = ref<string[]>([])
 
 const form = reactive({
   title: '',
@@ -84,8 +86,9 @@ function withOrganizationQuery(path: string) {
   return `${path}${organizationQuery.value ? `&${organizationQuery.value}` : ''}`
 }
 
-function appendQuery(path: string, params: Record<string, string | number | undefined>) {
+function appendQuery(path: string, params: Record<string, string | number | string[] | undefined>) {
   const query = Object.entries(params)
+    .flatMap(([key, value]) => Array.isArray(value) ? value.map((item) => [key, item] as const) : [[key, value] as const])
     .filter(([, value]) => value !== undefined && String(value).trim() !== '')
     .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`)
     .join('&')
@@ -93,8 +96,16 @@ function appendQuery(path: string, params: Record<string, string | number | unde
   return query ? `${path}&${query}` : path
 }
 
-const assignedFilterValue = computed(() => assignedFilterMode.value === 'me' ? 'me' : assignedMember.value.trim())
-const createdFilterValue = computed(() => createdFilterMode.value === 'me' ? 'me' : createdMember.value.trim())
+const assignedFilterValue = computed(() => {
+  if (assignedFilterMode.value === 'me') return ['me']
+  if (assignedFilterMode.value === 'members') return assignedMembers.value
+  return undefined
+})
+const createdFilterValue = computed(() => {
+  if (createdFilterMode.value === 'me') return ['me']
+  if (createdFilterMode.value === 'members') return createdMembers.value
+  return undefined
+})
 
 const boardUrl = computed(() => withOrganizationQuery(appendQuery(`/api/azure/work-items?project=${encodeURIComponent(activeProject.value)}`, {
   assignedTo: assignedFilterValue.value,
@@ -146,7 +157,7 @@ watch([activeProject, canLoadAzure], async ([project, isLoggedIn]) => {
   }
 }, { immediate: true })
 
-watch([searchKeyword, assignedFilterMode, assignedMember, createdFilterMode, createdMember, activeProject, itemsPerPage], () => {
+watch([searchKeyword, assignedFilterMode, assignedMembers, createdFilterMode, createdMembers, activeProject, itemsPerPage], () => {
   listPage.value = 1
 })
 
@@ -618,14 +629,15 @@ async function openDetail(item: AzureWorkItem) {
 
                   <UFormField label="Assigned to" class="lg:col-span-3">
                     <div class="flex gap-2">
-                      <USelect v-model="assignedFilterMode" :items="filterModes" class="w-28" />
+                      <USelect v-model="assignedFilterMode" :items="filterModes" class="w-32" />
                       <UInputMenu
-                        v-model="assignedMember"
+                        v-model="assignedMembers"
                         icon="i-lucide-user"
                         :items="userOptions"
                         :loading="usersPending"
-                        placeholder="member name/email"
-                        :disabled="assignedFilterMode === 'me'"
+                        placeholder="choose members"
+                        :disabled="assignedFilterMode !== 'members'"
+                        multiple
                         create-item
                       />
                     </div>
@@ -633,14 +645,15 @@ async function openDetail(item: AzureWorkItem) {
 
                   <UFormField label="Created by" class="lg:col-span-4">
                     <div class="flex gap-2">
-                      <USelect v-model="createdFilterMode" :items="filterModes" class="w-28" />
+                      <USelect v-model="createdFilterMode" :items="filterModes" class="w-32" />
                       <UInputMenu
-                        v-model="createdMember"
+                        v-model="createdMembers"
                         icon="i-lucide-user-pen"
                         :items="userOptions"
                         :loading="usersPending"
-                        placeholder="member name/email"
-                        :disabled="createdFilterMode === 'me'"
+                        placeholder="choose members"
+                        :disabled="createdFilterMode !== 'members'"
+                        multiple
                         create-item
                       />
                     </div>
