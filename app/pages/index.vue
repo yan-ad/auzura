@@ -2,6 +2,7 @@
 import type { DropdownMenuItem, NavigationMenuItem } from "@nuxt/ui";
 import {
   buildProjectSectionPath,
+  buildProjectStateQuery,
   getProjectSectionFromPath,
   type ProjectSection,
 } from "~/utils/navigation";
@@ -77,6 +78,8 @@ const routeOrganization = computed(() =>
   getRouteParam(route.params.organization),
 );
 const routeProject = computed(() => getRouteParam(route.params.project));
+const routeTeam = computed(() => getRouteParam(route.query.team));
+const routeSprint = computed(() => getRouteParam(route.query.sprint));
 const activeSection = computed<SectionView>(() =>
   getProjectSectionFromPath(route.path),
 );
@@ -378,14 +381,22 @@ watch(
 );
 
 watch(
-  [routeOrganization, routeProject],
-  ([organization, project]) => {
+  [routeOrganization, routeProject, routeTeam, routeSprint],
+  ([organization, project, team, sprint]) => {
     if (organization !== activeOrganization.value) {
       selectedOrganization.value = organization;
     }
 
     if (project && project !== selectedProject.value) {
       selectedProject.value = project;
+    }
+
+    if (team && team !== selectedTeam.value) {
+      selectedTeam.value = team;
+    }
+
+    if (sprint && sprint !== selectedSprintPath.value) {
+      selectedSprintPath.value = sprint;
     }
   },
   { immediate: true },
@@ -399,8 +410,12 @@ watch(
       project || "",
       activeSection.value,
     );
+    const targetQuery = buildProjectStateQuery(route.query, {
+      team: selectedTeam.value,
+      sprint: selectedSprintPath.value,
+    });
     if (route.path !== targetPath) {
-      await router.replace(targetPath);
+      await router.replace({ path: targetPath, query: targetQuery });
     }
   },
 );
@@ -538,6 +553,12 @@ watch(
   },
   { immediate: true },
 );
+
+watch([selectedTeam, selectedSprintPath], async ([team, sprint]) => {
+  const query = buildProjectStateQuery(route.query, { team, sprint });
+  if (route.query.team === query.team && route.query.sprint === query.sprint) return;
+  await router.replace({ path: route.path, query });
+});
 
 function withOrganizationQuery(path: string) {
   return `${path}${organizationQuery.value ? `&${organizationQuery.value}` : ""}`;
@@ -802,9 +823,11 @@ async function goToSection(section: SectionView) {
     selectedProject.value || "",
     section,
   );
-  if (route.path !== targetPath) {
-    await router.replace(targetPath);
-  }
+  const targetQuery = buildProjectStateQuery(route.query, {
+    team: selectedTeam.value,
+    sprint: selectedSprintPath.value,
+  });
+  await router.replace({ path: targetPath, query: targetQuery });
 }
 
 const viewNavigation = computed<NavigationMenuItem[][]>(() => [

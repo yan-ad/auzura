@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildProjectTeamsUrl, buildWorkItemsWiql, chunkWorkItemIds, getRelationTargetIds, groupWorkItemRelations, isAssignedToCandidate, isCreatedByCandidate, normalizeUser } from './azure-devops'
+import { buildWorkItemBatchBody, buildProjectTeamsUrl, buildWorkItemsWiql, chunkWorkItemIds, getRelationTargetIds, groupWorkItemRelations, isAssignedToCandidate, isCreatedByCandidate, normalizeUser } from './azure-devops'
 
 describe('buildWorkItemsWiql', () => {
   it('uses Azure DevOps @project context instead of interpolating a project literal', () => {
@@ -101,6 +101,16 @@ describe('groupWorkItemRelations', () => {
     expect(grouped).toEqual({
       children: [{ id: 384, type: 'Task', title: 'Child task', state: 'New', tags: [], webUrl: '' }],
       related: [{ id: 385, type: 'Bug', title: 'Related bug', state: 'Active', tags: [], webUrl: '' }]
+    })
+  })
+})
+
+
+describe('buildWorkItemBatchBody', () => {
+  it('does not send fields when expanding relations because Azure DevOps rejects that combination', () => {
+    expect(buildWorkItemBatchBody([383], { includeRelations: true })).toEqual({
+      ids: [383],
+      $expand: 'Relations'
     })
   })
 })

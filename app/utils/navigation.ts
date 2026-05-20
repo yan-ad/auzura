@@ -20,3 +20,20 @@ export function buildProjectSectionPath(
 
   return `/${encodeURIComponent(org)}/${encodeURIComponent(proj)}/${section}`;
 }
+
+export function buildProjectStateQuery(
+  currentQuery: Record<string, unknown>,
+  selection: { team?: string; sprint?: string }
+): Record<string, string> {
+  const query: Record<string, string> = {}
+
+  for (const [key, value] of Object.entries(currentQuery)) {
+    if (key === 'team' || key === 'sprint') continue
+    if (typeof value === 'string') query[key] = value
+  }
+
+  if (selection.team?.trim()) query.team = selection.team.trim()
+  if (selection.sprint?.trim()) query.sprint = selection.sprint.trim()
+
+  return query
+}
