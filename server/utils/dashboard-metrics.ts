@@ -1,6 +1,10 @@
-import { attachDatabasePool } from "@vercel/functions";
-import { MongoClient, type Collection, type Db } from "mongodb";
+import type { Collection } from "mongodb";
 import type { AzureWorkItem } from "../../app/types/azure-devops";
+import {
+  getMongoDatabase,
+  tryMongoCache,
+  tryWriteMongoCache,
+} from "./cache-storage";
 import type { CacheOwner } from "./project-cache";
 
 type WorkItemCacheDocument = {
@@ -38,57 +42,11 @@ type MongoIndex = {
   key: Record<string, number>;
 };
 
-let mongoClient: MongoClient | undefined;
-let mongoClientPromise: Promise<MongoClient> | undefined;
-
-function getRuntimeConfig() {
-  const runtimeGlobal = globalThis as typeof globalThis & {
-    useRuntimeConfig?: () => { mongodbUri?: unknown; mongodbDb?: unknown };
-  };
-  return typeof runtimeGlobal.useRuntimeConfig === "function" ?
-      runtimeGlobal.useRuntimeConfig()
-    : {};
-}
-
-function getMongoUri(): string {
-  const config = getRuntimeConfig();
-  const uri = String(config.mongodbUri || process.env.MONGODB_URI || "").trim();
-
-  if (!uri) {
-    throw new Error("MONGODB_URI is required for dashboard metrics cache.");
-  }
-
-  return uri;
-}
-
 function parseDate(value?: string): Date | undefined {
   if (!value) return undefined;
 
   const date = new Date(value);
   return Number.isFinite(date.getTime()) ? date : undefined;
-}
-
-function getDashboardDatabaseName(): string {
-  const config = getRuntimeConfig();
-  return (
-    String(config.mongodbDb || process.env.MONGODB_DB || "auzura").trim() ||
-    "auzura"
-  );
-}
-
-function getMongoClient(): Promise<MongoClient> {
-  if (mongoClientPromise) return mongoClientPromise;
-
-  mongoClient = new MongoClient(getMongoUri());
-  attachDatabasePool(mongoClient);
-  mongoClientPromise = mongoClient.connect();
-
-  return mongoClientPromise;
-}
-
-async function getDashboardDatabase(): Promise<Db> {
-  const client = await getMongoClient();
-  return client.db(getDashboardDatabaseName());
 }
 
 function hasIndexKeys(
@@ -134,7 +92,7 @@ async function dropLegacyIndex(
 async function getWorkItemCacheCollection(): Promise<
   Collection<WorkItemCacheDocument>
 > {
-  const db = await getDashboardDatabase();
+  const db = await getMongoDatabase();
   const collection = db.collection<WorkItemCacheDocument>("work_item_cache");
 
   await dropLegacyIndex(collection, { organization: 1, project: 1, id: 1 });
@@ -215,35 +173,37 @@ export async function cacheWorkItemsForDashboard(
 ): Promise<void> {
   if (!owner.key || !organization || !project || !items.length) return;
 
-  const collection = await getWorkItemCacheCollection();
-  const cachedAt = new Date();
+  await tryWriteMongoCache(async () => {
+    const collection = await getWorkItemCacheCollection();
+    const cachedAt = new Date();
 
-  await collection.bulkWrite(
-    items.map((item) => ({
-      updateOne: {
-        filter: { userKey: owner.key, organization, project, id: item.id },
-        update: {
-          $set: {
-            userKey: owner.key,
-            owner,
-            organization,
-            project,
-            id: item.id,
-            title: item.title,
-            type: item.type,
-            state: item.state,
-            assignedTo: item.assignedTo || undefined,
-            createdBy: item.createdBy || undefined,
-            changedDate: parseDate(item.changedDate),
-            createdDate: parseDate(item.createdDate),
-            cachedAt,
+    await collection.bulkWrite(
+      items.map((item) => ({
+        updateOne: {
+          filter: { userKey: owner.key, organization, project, id: item.id },
+          update: {
+            $set: {
+              userKey: owner.key,
+              owner,
+              organization,
+              project,
+              id: item.id,
+              title: item.title,
+              type: item.type,
+              state: item.state,
+              assignedTo: item.assignedTo || undefined,
+              createdBy: item.createdBy || undefined,
+              changedDate: parseDate(item.changedDate),
+              createdDate: parseDate(item.createdDate),
+              cachedAt,
+            },
           },
+          upsert: true,
         },
-        upsert: true,
-      },
-    })),
-    { ordered: false },
-  );
+      })),
+      { ordered: false },
+    );
+  });
 }
 
 async function getGroupedCounts(
@@ -288,42 +248,44 @@ export async function getDashboardMetrics(
     return { total: 0, byState: [], byType: [], byAssignee: [], freshness: [] };
   }
 
-  const collection = await getWorkItemCacheCollection();
-  const match = { userKey, organization, project };
-  const total = await collection.countDocuments(match);
-  const [latest, byState, byType, byAssignee, cachedItems] = await Promise.all([
-    collection.find(match).sort({ cachedAt: -1 }).limit(1).next(),
-    getGroupedCounts(collection, match, "state"),
-    getGroupedCounts(collection, match, "type"),
-    getGroupedCounts(collection, match, "assignedTo", 6),
-    collection.find(match, { projection: { changedDate: 1 } }).toArray(),
-  ]);
-  const freshnessCounts = new Map<string, number>();
+  return await tryMongoCache<DashboardMetrics>(async () => {
+    const collection = await getWorkItemCacheCollection();
+    const match = { userKey, organization, project };
+    const total = await collection.countDocuments(match);
+    const [latest, byState, byType, byAssignee, cachedItems] = await Promise.all([
+      collection.find(match).sort({ cachedAt: -1 }).limit(1).next(),
+      getGroupedCounts(collection, match, "state"),
+      getGroupedCounts(collection, match, "type"),
+      getGroupedCounts(collection, match, "assignedTo", 6),
+      collection.find(match, { projection: { changedDate: 1 } }).toArray(),
+    ]);
+    const freshnessCounts = new Map<string, number>();
 
-  for (const item of cachedItems) {
-    const bucket = getBucketForChangedDate(item.changedDate);
-    freshnessCounts.set(bucket, (freshnessCounts.get(bucket) || 0) + 1);
-  }
+    for (const item of cachedItems) {
+      const bucket = getBucketForChangedDate(item.changedDate);
+      freshnessCounts.set(bucket, (freshnessCounts.get(bucket) || 0) + 1);
+    }
 
-  const freshnessOrder = [
-    "Updated today",
-    "This week",
-    "This month",
-    "Older",
-    "No update date",
-  ];
-  const freshness = freshnessOrder
-    .filter((label) => freshnessCounts.has(label))
-    .map((label) => ({ label, count: freshnessCounts.get(label) || 0 }));
+    const freshnessOrder = [
+      "Updated today",
+      "This week",
+      "This month",
+      "Older",
+      "No update date",
+    ];
+    const freshness = freshnessOrder
+      .filter((label) => freshnessCounts.has(label))
+      .map((label) => ({ label, count: freshnessCounts.get(label) || 0 }));
 
-  return {
-    total,
-    byState: withPercent(byState, total),
-    byType: withPercent(byType, total),
-    byAssignee: withPercent(byAssignee, total),
-    freshness: withPercent(freshness, total),
-    lastSyncedAt: latest?.cachedAt.toISOString(),
-  };
+    return {
+      total,
+      byState: withPercent(byState, total),
+      byType: withPercent(byType, total),
+      byAssignee: withPercent(byAssignee, total),
+      freshness: withPercent(freshness, total),
+      lastSyncedAt: latest?.cachedAt?.toISOString(),
+    };
+  }, { total: 0, byState: [], byType: [], byAssignee: [], freshness: [] });
 }
 
 export async function purgeWorkItemCache(
@@ -333,12 +295,14 @@ export async function purgeWorkItemCache(
 ): Promise<number> {
   if (!userKey) return 0;
 
-  const collection = await getWorkItemCacheCollection();
-  const result = await collection.deleteMany({
-    userKey,
-    ...(organization ? { organization } : {}),
-    ...(project ? { project } : {}),
-  });
+  return await tryMongoCache(async () => {
+    const collection = await getWorkItemCacheCollection();
+    const result = await collection.deleteMany({
+      userKey,
+      ...(organization ? { organization } : {}),
+      ...(project ? { project } : {}),
+    });
 
-  return result.deletedCount;
+    return result.deletedCount;
+  }, 0);
 }
