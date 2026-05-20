@@ -6,6 +6,7 @@ import {
   buildProjectSectionRoute,
   getProjectSectionFromPath,
   getRouteProjectParams,
+  isProjectRoute,
   normalizeRouteProjectName,
   type ProjectSection,
 } from "~/utils/navigation";
@@ -89,18 +90,18 @@ watch(
   [activeOrganization, selectedProject],
   async ([organization, project]) => {
     if (isGlobalSettingsRoute.value) return;
-    if (!organization) return;
+    if (!organization || !project) return;
     const targetRoute = buildProjectSectionRoute(
       route.query,
       organization,
-      project || "",
+      project,
       activeSection.value,
       {
         team: selectedTeam.value,
         sprint: selectedSprintPath.value,
       },
     );
-    if (route.path !== targetRoute.path) {
+    if (isProjectRoute(route.path) && route.path !== targetRoute.path) {
       await router.replace(targetRoute);
     }
   },
@@ -280,7 +281,7 @@ const organizationProjectMenuItems = computed<DropdownMenuItem[][]>(() => [
 
 function getSectionRoute(
   section: SectionView,
-  selection: { project?: string; team?: string; sprint?: string } = {},
+  selection: { project?: string; team?: string; sprint?: string; resetSprint?: boolean } = {},
 ) {
   if (section === "settings") {
     return "/settings";
@@ -294,6 +295,7 @@ function getSectionRoute(
     {
       team: selection.team ?? selectedTeam.value,
       sprint: selection.sprint ?? selectedSprintPath.value,
+      resetSprint: selection.resetSprint,
     },
   );
 }
@@ -320,12 +322,13 @@ const viewNavigation = computed<NavigationMenuItem[][]>(() => {
             "i-lucide-users-round"
           : "i-lucide-users",
         active:
-          activeSection.value === "tasks" &&
+          activeSection.value === "sprint-task" &&
           selectedProject.value === group.project &&
           selectedTeam.value === team.name,
         to: getSectionRoute("sprint-task", {
           project: group.project,
           team: team.name,
+          resetSprint: group.project !== selectedProject.value || team.name !== selectedTeam.value,
         }),
       });
     }

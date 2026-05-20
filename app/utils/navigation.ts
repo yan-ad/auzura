@@ -82,9 +82,14 @@ export function buildProjectSectionPath(
   return `/${encodeURIComponent(org)}/${encodeURIComponent(proj)}/${section}`;
 }
 
+export function isProjectRoute(path: string): boolean {
+  const { organization, project } = getRouteProjectParams(path)
+  return Boolean(organization && project)
+}
+
 export function buildProjectStateQuery(
   currentQuery: Record<string, unknown>,
-  selection: { team?: string; sprint?: string }
+  selection: { team?: string; sprint?: string; resetSprint?: boolean }
 ): Record<string, string> {
   const query: Record<string, string> = {}
 
@@ -94,7 +99,7 @@ export function buildProjectStateQuery(
   }
 
   if (selection.team?.trim()) query.team = selection.team.trim()
-  if (selection.sprint?.trim()) query.sprint = selection.sprint.trim()
+  if (!selection.resetSprint && selection.sprint?.trim()) query.sprint = selection.sprint.trim()
 
   return query
 }
@@ -104,7 +109,7 @@ export function buildProjectSectionRoute(
   organization: string,
   project: string,
   section: ProjectSection = "tasks",
-  selection: { team?: string; sprint?: string } = {},
+  selection: { team?: string; sprint?: string; resetSprint?: boolean } = {},
 ): { path: string; query: Record<string, string> } {
   return {
     path: buildProjectSectionPath(organization, project, section),

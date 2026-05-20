@@ -5,6 +5,7 @@ import {
   buildProjectStateQuery,
   getProjectSectionFromPath,
   getRouteProjectParams,
+  isProjectRoute,
   normalizeRouteProjectName,
   type ProjectSection,
 } from "~/utils/navigation";
@@ -87,6 +88,19 @@ const routeTeam = computed(() => getRouteParam(route.query.team));
 const routeSprint = computed(() => getRouteParam(route.query.sprint));
 const activeSection = computed<SectionView>(() =>
   getProjectSectionFromPath(route.path),
+);
+const routeProjectKey = computed(() =>
+  routeOrganization.value && routeProject.value ?
+    `${routeOrganization.value}/${routeProject.value}`
+  : "",
+);
+const selectedProjectKey = computed(() =>
+  activeOrganization.value && selectedProject.value ?
+    `${activeOrganization.value}/${selectedProject.value}`
+  : "",
+);
+const routeMatchesSelectedProject = computed(
+  () => !isProjectRoute(route.path) || routeProjectKey.value === selectedProjectKey.value,
 );
 const resolvingDefaultOrganization = ref(false);
 
@@ -429,8 +443,12 @@ const {
 
 watch(
   [activeOrganization, canLoadAzure],
-  async ([, canLoad]) => {
-    selectedProject.value = "";
+  async ([organization, canLoad], [previousOrganization]) => {
+    if (previousOrganization && organization !== previousOrganization) {
+      selectedProject.value = "";
+      selectedTeam.value = "";
+      selectedSprintPath.value = "";
+    }
 
     if (!canLoad) {
       projectsData.value = undefined;
@@ -470,16 +488,17 @@ watch(
 watch(
   [activeOrganization, selectedProject],
   async ([organization, project]) => {
+    if (!organization || !project) return;
     const targetPath = buildProjectSectionPath(
       organization,
-      project || "",
+      project,
       activeSection.value,
     );
     const targetQuery = buildProjectStateQuery(route.query, {
       team: selectedTeam.value,
       sprint: selectedSprintPath.value,
     });
-    if (route.path !== targetPath) {
+    if (isProjectRoute(route.path) && route.path !== targetPath) {
       await router.replace({ path: targetPath, query: targetQuery });
     }
   },
@@ -503,6 +522,13 @@ watch(
   (options) => {
     if (!canLoadAzure.value) return;
 
+    if (routeProject.value && options.includes(routeProject.value)) {
+      if (selectedProject.value !== routeProject.value) {
+        selectedProject.value = routeProject.value;
+      }
+      return;
+    }
+
     if (!selectedProject.value && options[0]) {
       selectedProject.value = options[0];
     }
@@ -510,7 +536,8 @@ watch(
     if (
       selectedProject.value &&
       options[0] &&
-      !options.includes(selectedProject.value)
+      !options.includes(selectedProject.value) &&
+      !routeProject.value
     ) {
       selectedProject.value = options[0];
     }
@@ -518,12 +545,16 @@ watch(
   { immediate: true },
 );
 
-watch([activeProject, canLoadAzure], async ([project, canLoad]) => {
-  if (
-    !project ||
-    !canLoad ||
-    (activeSection.value !== "tasks" && activeSection.value !== "sprint-task")
-  ) {
+watch([activeProject, canLoadAzure], async ([project, canLoad], [previousProject]) => {
+  if (previousProject && project !== previousProject) {
+    selectedTeam.value = "";
+    selectedSprintPath.value = "";
+    teamsData.value = undefined;
+    sprintsData.value = undefined;
+    sprintItemsData.value = undefined;
+  }
+
+  if (!project || !canLoad || !routeMatchesSelectedProject.value || (activeSection.value !== "tasks" && activeSection.value !== "sprint-task")) {
     teamsData.value = undefined;
     sprintsData.value = undefined;
     sprintItemsData.value = undefined;
@@ -539,7 +570,7 @@ watch([activeProject, canLoadAzure], async ([project, canLoad]) => {
 watch(
   teams,
   async (value) => {
-    if (activeSection.value !== "sprint-task") return;
+    if (activeSection.value !== "sprint-task" || !routeMatchesSelectedProject.value) return;
     if (!value.length) {
       selectedTeam.value = "";
       return;
@@ -562,8 +593,7 @@ watch(
 watch(
   [selectedTeam, activeProject, canLoadAzure],
   async ([team, project, canLoad]) => {
-    if (!team || !project || !canLoad || activeSection.value !== "sprint-task")
-      return;
+    if (!team || !project || !canLoad || !routeMatchesSelectedProject.value || activeSection.value !== "sprint-task") return;
     await refreshSprints();
   },
 );
@@ -571,7 +601,7 @@ watch(
 watch(
   sprints,
   async (value) => {
-    if (activeSection.value !== "sprint-task") return;
+    if (activeSection.value !== "sprint-task" || !routeMatchesSelectedProject.value) return;
     if (!value.length) {
       selectedSprintPath.value = "";
       sprintItemsData.value = undefined;
@@ -599,7 +629,7 @@ watch(
 watch(
   [selectedSprintPath, activeProject, canLoadAzure, isSprintTaskView],
   async ([sprintPath, project, canLoad, isSprint]) => {
-    if (!sprintPath || !project || !canLoad || !isSprint) return;
+    if (!sprintPath || !project || !canLoad || !isSprint || !routeMatchesSelectedProject.value) return;
     await refreshSprintItems();
   },
 );
@@ -607,11 +637,7 @@ watch(
 watch(
   activeSection,
   async (section) => {
-    if (
-      (section !== "tasks" && section !== "sprint-task") ||
-      !activeProject.value ||
-      !canLoadAzure.value
-    )
+    if ((section !== "tasks" && section !== "sprint-task") || !activeProject.value || !canLoadAzure.value || !routeMatchesSelectedProject.value)
       return;
     await refreshTeams();
   },
@@ -621,7 +647,7 @@ watch(
 watch(
   activeSection,
   async (section) => {
-    if (!activeProject.value || !canLoadAzure.value) return;
+    if (!activeProject.value || !canLoadAzure.value || !routeMatchesSelectedProject.value) return;
     if (section === "sprint-task") {
       if (!teams.value.length) await refreshTeams();
       if (selectedTeam.value) await refreshSprints();
@@ -634,8 +660,8 @@ watch(
 );
 
 watch([selectedTeam, selectedSprintPath], async ([team, sprint]) => {
-  if (activeSection.value !== "tasks" && activeSection.value !== "sprint-task")
-    return;
+  if (activeSection.value !== "tasks" && activeSection.value !== "sprint-task") return;
+  if (!routeMatchesSelectedProject.value) return;
   const query = buildProjectStateQuery(route.query, { team, sprint });
   if (route.query.team === query.team && route.query.sprint === query.sprint)
     return;
@@ -844,7 +870,7 @@ const chartSections = computed(() => [
 async function goToSection(section: SectionView) {
   const targetPath = buildProjectSectionPath(
     activeOrganization.value,
-    selectedProject.value || "",
+    activeProject.value,
     section,
   );
   const targetQuery = buildProjectStateQuery(route.query, {
