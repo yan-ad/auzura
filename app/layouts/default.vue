@@ -1,12 +1,6 @@
 <script setup lang="ts">
 import type { DropdownMenuItem, NavigationMenuItem } from "@nuxt/ui";
-import type {
-  AzureOrganization,
-  AzureProject,
-  AzureSprint,
-  AzureTeam,
-  AzureWorkItem,
-} from "~/types/azure-devops";
+import type { AzureOrganization, AzureProject } from "~/types/azure-devops";
 
 import {
   buildProjectSectionPath,
@@ -41,6 +35,10 @@ const organizationQuery = computed(() =>
 const activeProject = computed(() => selectedProject.value.trim());
 const canLoadAzure = computed(
   () => loggedIn.value && Boolean(activeOrganization.value),
+);
+const sidebarTeamsUrl = computed(
+  () =>
+    `/api/azure/sidebar-teams${organizationQuery.value ? `?${organizationQuery.value}` : ""}`,
 );
 
 function getRouteParam(value: unknown): string {
@@ -106,118 +104,56 @@ const { data: organizationsData, refresh: refreshOrganizations } =
     "/api/azure/organizations",
     { immediate: false, watch: false },
   );
+const organizations = computed(
+  () => organizationsData.value?.organizations ?? [],
+);
 const organizationItems = computed(() => {
-  const merged = new Set(
-    (organizationsData.value?.organizations ?? []).map(
-      (organization) => organization.slug,
-    ),
+  const merged = new Map(
+    organizations.value.map((organization) => [
+      organization.slug,
+      organization,
+    ]),
   );
-  if (activeOrganization.value) merged.add(activeOrganization.value);
-  return Array.from(merged).sort((a, b) => a.localeCompare(b));
+  if (activeOrganization.value && !merged.has(activeOrganization.value)) {
+    merged.set(activeOrganization.value, {
+      id: activeOrganization.value,
+      name: activeOrganization.value,
+      slug: activeOrganization.value,
+    });
+  }
+  return Array.from(merged.values()).sort(
+    (first, second) =>
+      Number(Boolean(second.isDefault)) - Number(Boolean(first.isDefault)) ||
+      first.slug.localeCompare(second.slug),
+  );
 });
 
-const teamsUrl = computed(() =>
-  withOrganizationQuery(
-    `/api/azure/teams?project=${encodeURIComponent(activeProject.value)}`,
-  ),
-);
 const {
-  data: teamsData,
-  pending: teamsPending,
-  refresh: refreshTeams,
-} = await useFetch<{ teams: AzureTeam[] }>(teamsUrl, {
+  data: sidebarTeamsData,
+  pending: sidebarTeamsPending,
+  refresh: refreshSidebarTeams,
+} = await useFetch<{
+  projects: Array<{
+    project: string;
+    teams: Array<{ id: string; name: string }>;
+  }>;
+}>(sidebarTeamsUrl, {
   immediate: false,
   watch: false,
 });
-const teamOptions = computed(() =>
-  (teamsData.value?.teams ?? []).map((team) => team.name),
+const sidebarTeamGroups = computed(
+  () => sidebarTeamsData.value?.projects ?? [],
 );
-
-const sprintsUrl = computed(() =>
-  withOrganizationQuery(
-    `/api/azure/sprints?project=${encodeURIComponent(activeProject.value)}&team=${encodeURIComponent(selectedTeam.value)}`,
-  ),
-);
-const {
-  data: sprintsData,
-  pending: sprintsPending,
-  refresh: refreshSprints,
-} = await useFetch<{ sprints: AzureSprint[] }>(sprintsUrl, {
-  immediate: false,
-  watch: false,
-});
-const sprints = computed(() => sprintsData.value?.sprints ?? []);
-const sprintOptions = computed(() =>
-  sprints.value.map((sprint) => sprint.path),
-);
-const selectedSprint = computed(() =>
-  sprints.value.find((sprint) => sprint.path === selectedSprintPath.value),
-);
-
-const sprintItemsUrl = computed(() =>
-  withOrganizationQuery(
-    `/api/azure/sprints/work-items?project=${encodeURIComponent(activeProject.value)}&iterationPath=${encodeURIComponent(selectedSprintPath.value)}`,
-  ),
-);
-const {
-  data: sprintItemsData,
-  pending: sprintItemsPending,
-  refresh: refreshSprintItems,
-} = await useFetch<{ items: AzureWorkItem[] }>(sprintItemsUrl, {
-  immediate: false,
-  watch: false,
-});
-const sprintItems = computed(() => sprintItemsData.value?.items ?? []);
 
 watch(
   canLoadAzure,
   async (ready) => {
     if (!ready) return;
-    await Promise.all([refreshOrganizations(), refreshProjects()]);
-  },
-  { immediate: true },
-);
-
-watch(
-  [activeProject, canLoadAzure],
-  async ([project, canLoad]) => {
-    if (!project || !canLoad) return;
-    await refreshTeams();
-  },
-  { immediate: true },
-);
-
-watch(
-  teamOptions,
-  async (options) => {
-    if (!options.length) return;
-    if (!selectedTeam.value || !options.includes(selectedTeam.value))
-      selectedTeam.value = options[0] || "";
-    if (selectedTeam.value) await refreshSprints();
-  },
-  { immediate: true },
-);
-
-watch(
-  [selectedTeam, activeProject, canLoadAzure],
-  async ([team, project, canLoad]) => {
-    if (!team || !project || !canLoad) return;
-    await refreshSprints();
-  },
-);
-
-watch(
-  sprints,
-  async (value) => {
-    if (!value.length) return;
-    const current = value.find((sprint) => sprint.timeFrame === "current");
-    if (
-      !selectedSprintPath.value ||
-      !value.some((sprint) => sprint.path === selectedSprintPath.value)
-    ) {
-      selectedSprintPath.value = current?.path || value[0]?.path || "";
-    }
-    if (selectedSprintPath.value) await refreshSprintItems();
+    await Promise.all([
+      refreshOrganizations(),
+      refreshProjects(),
+      refreshSidebarTeams(),
+    ]);
   },
   { immediate: true },
 );
@@ -225,6 +161,7 @@ watch(
 const isAddOrganizationOpen = ref(false);
 const newOrganization = ref("");
 const addingOrganization = ref(false);
+const settingDefaultOrganization = ref(false);
 
 async function addOrganization() {
   const organization = newOrganization.value.trim();
@@ -256,6 +193,23 @@ async function logoutFromMicrosoft() {
   await refreshSession();
 }
 
+async function setCurrentOrganizationAsDefault() {
+  if (!activeOrganization.value || settingDefaultOrganization.value) return;
+
+  settingDefaultOrganization.value = true;
+  try {
+    await $fetch("/api/azure/default-organization" as string, {
+      method: "POST",
+      body: {
+        organization: activeOrganization.value,
+      },
+    });
+    await refreshOrganizations();
+  } finally {
+    settingDefaultOrganization.value = false;
+  }
+}
+
 const userMenuItems = computed<DropdownMenuItem[][]>(() => [
   [
     {
@@ -274,10 +228,13 @@ const userMenuItems = computed<DropdownMenuItem[][]>(() => [
 
 const organizationProjectMenuItems = computed<DropdownMenuItem[][]>(() => [
   organizationItems.value.map((organization) => ({
-    label: organization,
-    icon: "i-lucide-building-2",
+    label:
+      organization.isDefault ?
+        `${organization.slug} (default)`
+      : organization.slug,
+    icon: organization.isDefault ? "i-lucide-star" : "i-lucide-building-2",
     onSelect: () => {
-      selectedOrganization.value = organization;
+      selectedOrganization.value = organization.slug;
       selectedProject.value = "";
     },
   })),
@@ -289,6 +246,12 @@ const organizationProjectMenuItems = computed<DropdownMenuItem[][]>(() => [
     },
   })),
   [
+    {
+      label: "Set current as default",
+      icon: "i-lucide-star",
+      disabled: !activeOrganization.value || settingDefaultOrganization.value,
+      onSelect: async () => await setCurrentOrganizationAsDefault(),
+    },
     {
       label: "Add organization",
       icon: "i-lucide-circle-plus",
@@ -310,49 +273,36 @@ async function goToSection(section: SectionView) {
 
 const viewNavigation = computed<NavigationMenuItem[][]>(() => {
   const teamsGroup: NavigationMenuItem[] = [
-    { label: "Sprints", type: "label" },
+    { label: "Sprint teams", type: "label" },
   ];
 
-  for (const team of teamOptions.value) {
-    const isSelected = selectedTeam.value === team;
-    const teamItem: NavigationMenuItem = {
-      label: team,
-      icon: "i-lucide-users",
-      defaultOpen: isSelected,
-      onSelect: () => {
-        selectedTeam.value = team;
-      },
-    };
-    if (isSelected && sprintOptions.value.length) {
-      teamItem.children = sprintOptions.value.map((sprintPath) => {
-        const name = sprintPath.split("\\").pop() || sprintPath;
-        const isCurrent = selectedSprintPath.value === sprintPath;
-        return {
-          label: name,
-          icon:
-            isCurrent ? "i-lucide-calendar-check" : "i-lucide-calendar-range",
-          onSelect: () => {
-            selectedSprintPath.value = sprintPath;
-          },
-        };
-      });
-    }
-    teamsGroup.push(teamItem);
-  }
-
-  const sprintTaskGroup: NavigationMenuItem[] = [];
-  if (selectedSprint.value) {
-    sprintTaskGroup.push({
-      label: "Sprint",
+  for (const group of sidebarTeamGroups.value) {
+    teamsGroup.push({
+      label: group.project,
       type: "label",
     });
-    sprintTaskGroup.push({
-      label: "Sprint Task",
-      icon: "i-lucide-list-tree",
-      badge: String(sprintItems.value.length),
-      active: activeSection.value === "sprint-task",
-      onSelect: async () => await goToSection("sprint-task"),
-    });
+
+    for (const team of group.teams) {
+      teamsGroup.push({
+        label: team.name,
+        icon:
+          (
+            selectedProject.value === group.project &&
+            selectedTeam.value === team.name
+          ) ?
+            "i-lucide-users-round"
+          : "i-lucide-users",
+        active:
+          activeSection.value === "sprint-task" &&
+          selectedProject.value === group.project &&
+          selectedTeam.value === team.name,
+        onSelect: async () => {
+          selectedProject.value = group.project;
+          selectedTeam.value = team.name;
+          await goToSection("sprint-task");
+        },
+      });
+    }
   }
 
   return [
@@ -376,8 +326,9 @@ const viewNavigation = computed<NavigationMenuItem[][]>(() => {
         onSelect: async () => await goToSection("settings"),
       },
     ],
-    ...(teamOptions.value.length ? [teamsGroup] : []),
-    ...(sprintTaskGroup.length ? [sprintTaskGroup] : []),
+    ...(sidebarTeamGroups.value.length || sidebarTeamsPending.value ?
+      [teamsGroup]
+    : []),
   ];
 });
 </script>

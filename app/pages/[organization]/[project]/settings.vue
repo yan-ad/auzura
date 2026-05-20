@@ -38,6 +38,7 @@ const {
 
 const resyncPending = ref(false);
 const purgePending = ref(false);
+const defaultPending = ref(false);
 const resyncResult = ref<null | {
   syncedAt: string;
   teamCount: number;
@@ -57,6 +58,37 @@ function formatDateTime(value?: string) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));
+}
+
+async function setAsDefaultOrganization() {
+  defaultPending.value = true;
+
+  try {
+    await $fetch("/api/azure/default-organization" as string, {
+      method: "POST",
+      body: {
+        organization: organization.value,
+      },
+    });
+    await refreshAbout();
+    await refreshNuxtData();
+    toast.add({
+      title: "Default organization updated",
+      description: `${organization.value} is now your default workspace.`,
+      color: "success",
+    });
+  } catch (error) {
+    toast.add({
+      title: "Could not update default organization",
+      description:
+        error instanceof Error ?
+          error.message
+        : "Default organization update failed.",
+      color: "error",
+    });
+  } finally {
+    defaultPending.value = false;
+  }
 }
 
 async function resyncSprints() {
@@ -242,6 +274,40 @@ async function purgeCache(scope: "workspace" | "all") {
           </div>
         </UCard>
       </div>
+
+      <UCard>
+        <template #header>
+          <div class="space-y-1">
+            <h2 class="text-base font-semibold text-highlighted">
+              Workspace default
+            </h2>
+            <p class="text-sm text-muted">
+              Use this organization as the default target when you open the app
+              from the root path.
+            </p>
+          </div>
+        </template>
+
+        <div
+          class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <div
+            class="rounded-lg border border-default bg-elevated/40 px-4 py-3 text-sm text-muted"
+          >
+            Organization:
+            <span class="font-medium text-highlighted">{{ organization }}</span>
+          </div>
+
+          <UButton
+            color="primary"
+            variant="soft"
+            :loading="defaultPending"
+            @click="setAsDefaultOrganization"
+          >
+            Set this organization as default
+          </UButton>
+        </div>
+      </UCard>
 
       <UCard>
         <template #header>

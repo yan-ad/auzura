@@ -201,6 +201,33 @@ export async function getDefaultOrganization(
   );
 }
 
+export async function setDefaultOrganization(
+  owner: CacheOwner,
+  organizationSlug: string,
+  user?: AzureAuthSessionUser,
+): Promise<AzureOrganization | null> {
+  const slug = organizationSlug.trim();
+  if (!owner.key || !slug) return null;
+
+  const current = await getCachedUser(owner.key);
+  const existingOrganization = current?.organizations.find(
+    (organization) => organization.slug === slug,
+  );
+
+  await upsertCachedUser({
+    owner,
+    user: user ||
+      current?.user || {
+        displayName: owner.displayName,
+        email: owner.email,
+      },
+    organizations: existingOrganization ? [existingOrganization] : [],
+    defaultOrganizationSlug: slug,
+  });
+
+  return await getDefaultOrganization(owner.key);
+}
+
 export async function purgeCachedUser(userKey: string): Promise<number> {
   if (!userKey) return 0;
 

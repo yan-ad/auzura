@@ -34,6 +34,9 @@ const organizationOptions = computed(() =>
 const hasOrganizationOptions = computed(
   () => organizationOptions.value.length > 0,
 );
+const defaultOrganization = computed(() =>
+  (organizationsData.value?.organizations ?? []).find((item) => item.isDefault),
+);
 
 async function refreshOrganizationOptions() {
   await refreshOrganizations();
@@ -146,6 +149,16 @@ async function submitSetup() {
             placeholder="your-azure-org"
           />
         </UFormField>
+
+        <div
+          v-if="defaultOrganization"
+          class="rounded-lg border border-default bg-elevated/40 px-3 py-2 text-sm text-muted"
+        >
+          Default organization:
+          <span class="font-medium text-highlighted">
+            {{ defaultOrganization.name || defaultOrganization.slug }}
+          </span>
+        </div>
 
         <UButton
           v-if="loggedIn"
