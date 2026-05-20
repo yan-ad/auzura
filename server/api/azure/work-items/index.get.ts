@@ -1,5 +1,5 @@
 import { getQuery } from 'h3'
-import { getAzureOrganizationFromQuery, listRecentWorkItems, type WorkItemListFilters, withAzureOrganization } from '../../../utils/azure-devops'
+import { getAzureOrganizationFromQuery, listRecentWorkItems, listSprintPbis, type WorkItemListFilters, type WorkItemListResult, withAzureOrganization } from '../../../utils/azure-devops'
 
 function normalizeQueryString(value: string): string {
   let normalized = value.trim()
@@ -40,10 +40,11 @@ function getNumberQueryValue(value: unknown): number | undefined {
   return Number.isFinite(number) ? number : undefined
 }
 
-export default defineEventHandler(async (event): Promise<Awaited<ReturnType<typeof listRecentWorkItems>>> => {
+export default defineEventHandler(async (event): Promise<WorkItemListResult> => {
   const query = getQuery(event)
   const organization = getAzureOrganizationFromQuery(query)
   const project = getStringQueryValue(query.project)
+  const iterationPath = getStringQueryValue(query.iterationPath)
   const filters: WorkItemListFilters = {
     assignedTo: getStringArrayQueryValue(query.assignedTo),
     createdBy: getStringArrayQueryValue(query.createdBy),
@@ -51,5 +52,18 @@ export default defineEventHandler(async (event): Promise<Awaited<ReturnType<type
     offset: getNumberQueryValue(query.offset),
     limit: getNumberQueryValue(query.limit)
   }
-  return await withAzureOrganization(organization, () => listRecentWorkItems(project, filters), event)
+
+  return await withAzureOrganization(organization, async () => {
+    if (iterationPath) {
+      const items = await listSprintPbis(project, iterationPath)
+      return {
+        items,
+        total: items.length,
+        offset: 0,
+        limit: items.length
+      }
+    }
+
+    return await listRecentWorkItems(project, filters)
+  }, event)
 })

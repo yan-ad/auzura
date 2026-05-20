@@ -328,13 +328,13 @@ const viewNavigation = computed<NavigationMenuItem[][]>(() => {
             "i-lucide-users-round"
           : "i-lucide-users",
         active:
-          activeSection.value === "sprint-task" &&
+          activeSection.value === "tasks" &&
           selectedProject.value === group.project &&
           selectedTeam.value === team.name,
         onSelect: async () => {
           selectedProject.value = group.project;
           selectedTeam.value = team.name;
-          await goToSection("sprint-task", { team: team.name });
+          await goToSection("tasks", { team: team.name });
         },
       });
     }
@@ -343,9 +343,9 @@ const viewNavigation = computed<NavigationMenuItem[][]>(() => {
   return [
     [
       {
-        label: "All Task",
+        label: "Tasks",
         icon: "i-lucide-list-filter",
-        active: activeSection.value === "tasks",
+        active: activeSection.value === "tasks" || activeSection.value === "sprint-task",
         onSelect: async () => await goToSection("tasks"),
       },
       {

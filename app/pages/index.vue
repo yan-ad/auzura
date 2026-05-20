@@ -18,7 +18,6 @@ import type {
   AzureWorkItemRelation,
 } from "~/types/azure-devops";
 
-type IdentityFilterMode = "anyone" | "me" | "members";
 type SectionView = ProjectSection;
 
 const toast = useToast();
@@ -41,19 +40,13 @@ const selectedSprintPath = useCookie<string>("auzura:selected-sprint-path", {
   default: () => "",
 });
 const { loggedIn, user, fetch: refreshSession } = useUserSession();
-const filterModes = [
-  { label: "Anyone", value: "anyone" },
-  { label: "Me", value: "me" },
-  { label: "Members", value: "members" },
-];
 const listPage = ref(1);
 const itemsPerPageOptions = [25, 50, 100];
 const itemsPerPage = ref(50);
 const searchKeyword = ref("");
-const assignedFilterMode = ref<IdentityFilterMode>("anyone");
 const assignedMembers = ref<string[]>([]);
-const createdFilterMode = ref<IdentityFilterMode>("anyone");
 const createdMembers = ref<string[]>([]);
+const taskViewMode = ref<"sprint" | "all">("sprint");
 
 const form = reactive({
   title: "",
@@ -311,10 +304,13 @@ const sprintOptions = computed(() =>
 const selectedSprint = computed(() =>
   sprints.value.find((sprint) => sprint.path === selectedSprintPath.value),
 );
+const isSprintTaskView = computed(
+  () => activeSection.value === "tasks" && taskViewMode.value === "sprint",
+);
 
 const sprintItemsUrl = computed(() =>
   withOrganizationQuery(
-    `/api/azure/sprints/work-items?project=${encodeURIComponent(activeProject.value)}&iterationPath=${encodeURIComponent(selectedSprintPath.value)}`,
+    `/api/azure/work-items?project=${encodeURIComponent(activeProject.value)}&iterationPath=${encodeURIComponent(selectedSprintPath.value)}`,
   ),
 );
 const {
@@ -461,24 +457,26 @@ watch(
 );
 
 watch([activeProject, canLoadAzure], async ([project, canLoad]) => {
-  if (!project || !canLoad || activeSection.value !== "sprint-task") {
+  if (!project || !canLoad || activeSection.value !== "tasks") {
     teamsData.value = undefined;
     sprintsData.value = undefined;
     sprintItemsData.value = undefined;
-    selectedTeam.value = "";
-    selectedSprintPath.value = "";
     return;
   }
 
   await refreshTeams();
+  if (taskViewMode.value === "all") {
+    await refreshBoard();
+  }
 });
 
 watch(
   teams,
   async (value) => {
-    if (activeSection.value !== "sprint-task") return;
+    if (activeSection.value !== "tasks") return;
     if (!value.length) {
       selectedTeam.value = "";
+      taskViewMode.value = "all";
       return;
     }
 
@@ -490,6 +488,7 @@ watch(
     }
 
     if (selectedTeam.value) {
+      taskViewMode.value = "sprint";
       await refreshSprints();
     }
   },
@@ -499,8 +498,8 @@ watch(
 watch(
   [selectedTeam, activeProject, canLoadAzure],
   async ([team, project, canLoad]) => {
-    if (!team || !project || !canLoad || activeSection.value !== "sprint-task")
-      return;
+    if (!team || !project || !canLoad || activeSection.value !== "tasks") return;
+    taskViewMode.value = "sprint";
     await refreshSprints();
   },
 );
@@ -508,7 +507,7 @@ watch(
 watch(
   sprints,
   async (value) => {
-    if (activeSection.value !== "sprint-task") return;
+    if (activeSection.value !== "tasks") return;
     if (!value.length) {
       selectedSprintPath.value = "";
       sprintItemsData.value = undefined;
@@ -526,7 +525,7 @@ watch(
       selectedSprintPath.value = fallback;
     }
 
-    if (selectedSprintPath.value) {
+    if (selectedSprintPath.value && isSprintTaskView.value) {
       await refreshSprintItems();
     }
   },
@@ -534,15 +533,9 @@ watch(
 );
 
 watch(
-  [selectedSprintPath, activeProject, canLoadAzure],
-  async ([sprintPath, project, canLoad]) => {
-    if (
-      !sprintPath ||
-      !project ||
-      !canLoad ||
-      activeSection.value !== "sprint-task"
-    )
-      return;
+  [selectedSprintPath, activeProject, canLoadAzure, isSprintTaskView],
+  async ([sprintPath, project, canLoad, isSprint]) => {
+    if (!sprintPath || !project || !canLoad || !isSprint) return;
     await refreshSprintItems();
   },
 );
@@ -550,18 +543,29 @@ watch(
 watch(
   activeSection,
   async (section) => {
-    if (
-      section !== "sprint-task" ||
-      !activeProject.value ||
-      !canLoadAzure.value
-    )
+    if (section !== "tasks" || !activeProject.value || !canLoadAzure.value)
       return;
     await refreshTeams();
   },
   { immediate: true },
 );
 
+watch(taskViewMode, async (mode) => {
+  if (activeSection.value !== "tasks" || !activeProject.value || !canLoadAzure.value)
+    return;
+
+  if (mode === "sprint") {
+    if (!teams.value.length) await refreshTeams();
+    if (selectedTeam.value) await refreshSprints();
+    if (selectedSprintPath.value) await refreshSprintItems();
+    return;
+  }
+
+  await refreshBoard();
+});
+
 watch([selectedTeam, selectedSprintPath], async ([team, sprint]) => {
+  if (activeSection.value !== "tasks") return;
   const query = buildProjectStateQuery(route.query, { team, sprint });
   if (route.query.team === query.team && route.query.sprint === query.sprint) return;
   await router.replace({ path: route.path, query });
@@ -591,16 +595,12 @@ function appendQuery(
   return query ? `${path}&${query}` : path;
 }
 
-const assignedFilterValue = computed(() => {
-  if (assignedFilterMode.value === "me") return ["me"];
-  if (assignedFilterMode.value === "members") return assignedMembers.value;
-  return undefined;
-});
-const createdFilterValue = computed(() => {
-  if (createdFilterMode.value === "me") return ["me"];
-  if (createdFilterMode.value === "members") return createdMembers.value;
-  return undefined;
-});
+const assignedFilterValue = computed(() =>
+  assignedMembers.value.length ? assignedMembers.value : undefined,
+);
+const createdFilterValue = computed(() =>
+  createdMembers.value.length ? createdMembers.value : undefined,
+);
 
 const boardUrl = computed(() =>
   withOrganizationQuery(
@@ -702,15 +702,7 @@ watch(
 );
 
 watch(
-  [
-    searchKeyword,
-    assignedFilterMode,
-    assignedMembers,
-    createdFilterMode,
-    createdMembers,
-    activeProject,
-    itemsPerPage,
-  ],
+  [searchKeyword, assignedMembers, createdMembers, activeProject, itemsPerPage],
   () => {
     listPage.value = 1;
   },
@@ -840,17 +832,11 @@ async function goToSection(section: SectionView) {
 const viewNavigation = computed<NavigationMenuItem[][]>(() => [
   [
     {
-      label: "All Task",
+      label: "Tasks",
       icon: "i-lucide-list-filter",
-      badge: String(listTotal.value),
-      active: activeSection.value === "tasks",
+      badge: String(isSprintTaskView.value ? sprintItems.value.length : listTotal.value),
+      active: activeSection.value === "tasks" || activeSection.value === "sprint-task",
       onSelect: async () => await goToSection("tasks"),
-    },
-    {
-      label: "Sprint Task",
-      icon: "i-lucide-list-tree",
-      active: activeSection.value === "sprint-task",
-      onSelect: async () => await goToSection("sprint-task"),
     },
     {
       label: "Overview",
@@ -1102,11 +1088,7 @@ async function addOrganization() {
               color="primary"
               variant="subtle"
             >
-              {{
-                activeSection === "tasks" ? "All Task"
-                : activeSection === "sprint-task" ? "Sprint Task"
-                : "Dashboard Overview"
-              }}
+              {{ activeSection === "tasks" ? "Tasks" : "Dashboard Overview" }}
             </UButton>
           </UButtonGroup>
         </template>
@@ -1212,7 +1194,7 @@ async function addOrganization() {
                   MongoDB Atlas cache{{
                     dashboardMetrics?.lastSyncedAt ?
                       ` · synced ${formatDate(dashboardMetrics.lastSyncedAt)}`
-                    : " · refresh All Task dulu buat seed data"
+                    : " · refresh Tasks dulu buat seed data"
                   }}
                 </p>
               </div>
@@ -1258,7 +1240,7 @@ async function addOrganization() {
                 v-else
                 class="rounded-lg border border-dashed border-default p-6 text-center text-sm text-muted"
               >
-                Belum ada cache. Refresh All Task dulu buat populate MongoDB
+                Belum ada cache. Refresh Tasks dulu buat populate MongoDB
                 Atlas.
               </p>
             </div>
@@ -1272,85 +1254,236 @@ async function addOrganization() {
                 class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"
               >
                 <div>
-                  <h2 class="text-lg font-semibold text-highlighted">
-                    All Task
-                  </h2>
+                  <h2 class="text-lg font-semibold text-highlighted">Tasks</h2>
                   <p class="text-sm text-muted">
-                    {{ listTotal }} item match in
-                    {{ activeProject || "selected project" }}
+                    <template v-if="isSprintTaskView">
+                      {{ selectedSprint?.name || "No sprint selected" }} ·
+                      {{ sprintItems.length }} PBI / story
+                    </template>
+                    <template v-else>
+                      {{ listTotal }} item match in
+                      {{ activeProject || "selected project" }}
+                    </template>
                   </p>
                 </div>
-                <UButton
-                  icon="i-lucide-refresh-cw"
-                  :loading="boardPending"
-                  color="neutral"
-                  variant="subtle"
-                  @click="refreshBoard()"
-                >
-                  Refresh list
-                </UButton>
+                <div class="flex flex-wrap items-center gap-2">
+                  <UButtonGroup>
+                    <UButton
+                      :color="taskViewMode === 'sprint' ? 'primary' : 'neutral'"
+                      :variant="taskViewMode === 'sprint' ? 'subtle' : 'ghost'"
+                      icon="i-lucide-list-tree"
+                      @click="taskViewMode = 'sprint'"
+                    >
+                      Sprint
+                    </UButton>
+                    <UButton
+                      :color="taskViewMode === 'all' ? 'primary' : 'neutral'"
+                      :variant="taskViewMode === 'all' ? 'subtle' : 'ghost'"
+                      icon="i-lucide-list-filter"
+                      @click="taskViewMode = 'all'"
+                    >
+                      All
+                    </UButton>
+                  </UButtonGroup>
+                  <UButton
+                    icon="i-lucide-refresh-cw"
+                    :loading="isSprintTaskView ? sprintItemsPending : boardPending"
+                    color="neutral"
+                    variant="subtle"
+                    :disabled="isSprintTaskView && !selectedSprintPath"
+                    @click="isSprintTaskView ? refreshSprintItems() : refreshBoard()"
+                  >
+                    Refresh
+                  </UButton>
+                </div>
               </div>
 
-              <div class="grid gap-3 lg:grid-cols-12">
-                <UFormField label="Search Issues" class="lg:col-span-4">
+              <div v-if="isSprintTaskView" class="grid gap-3 md:grid-cols-2">
+                <UFormField label="Team">
+                  <USelectMenu
+                    v-model="selectedTeam"
+                    :items="teamOptions"
+                    :loading="teamsPending"
+                    placeholder="Team"
+                    class="w-full"
+                    searchable
+                  />
+                </UFormField>
+                <UFormField label="Sprint">
+                  <USelectMenu
+                    v-model="selectedSprintPath"
+                    :items="sprintOptions"
+                    :loading="sprintsPending"
+                    :disabled="!selectedTeam"
+                    placeholder="Sprint iteration"
+                    class="w-full"
+                    searchable
+                  />
+                </UFormField>
+              </div>
+
+              <div v-else class="grid gap-3 lg:grid-cols-12">
+                <UFormField label="Search" class="lg:col-span-5">
                   <UInput
                     v-model="searchKeyword"
                     icon="i-lucide-search"
-                    placeholder="Search by key, title, assignee"
+                    placeholder="Keyword, title, assignee, or #383"
                   />
                 </UFormField>
 
-                <UFormField label="Show" class="lg:col-span-2">
+                <UFormField label="Assignee" class="lg:col-span-3">
+                  <UInputMenu
+                    v-model="assignedMembers"
+                    icon="i-lucide-user"
+                    :items="userOptions"
+                    :loading="usersPending"
+                    placeholder="Anyone"
+                    multiple
+                    create-item
+                  />
+                </UFormField>
+
+                <UFormField label="Reporter" class="lg:col-span-3">
+                  <UInputMenu
+                    v-model="createdMembers"
+                    icon="i-lucide-user-pen"
+                    :items="userOptions"
+                    :loading="usersPending"
+                    placeholder="Anyone"
+                    multiple
+                    create-item
+                  />
+                </UFormField>
+
+                <UFormField label="Show" class="lg:col-span-1">
                   <USelect
                     v-model="itemsPerPage"
                     :items="itemsPerPageOptions"
                   />
                 </UFormField>
-
-                <UFormField label="Assignee" class="lg:col-span-3">
-                  <div class="flex gap-2">
-                    <USelect
-                      v-model="assignedFilterMode"
-                      :items="filterModes"
-                      class="w-32"
-                    />
-                    <UInputMenu
-                      v-model="assignedMembers"
-                      icon="i-lucide-user"
-                      :items="userOptions"
-                      :loading="usersPending"
-                      placeholder="choose members"
-                      :disabled="assignedFilterMode !== 'members'"
-                      multiple
-                      create-item
-                    />
-                  </div>
-                </UFormField>
-
-                <UFormField label="Reporter" class="lg:col-span-3">
-                  <div class="flex gap-2">
-                    <USelect
-                      v-model="createdFilterMode"
-                      :items="filterModes"
-                      class="w-32"
-                    />
-                    <UInputMenu
-                      v-model="createdMembers"
-                      icon="i-lucide-user-pen"
-                      :items="userOptions"
-                      :loading="usersPending"
-                      placeholder="choose members"
-                      :disabled="createdFilterMode !== 'members'"
-                      multiple
-                      create-item
-                    />
-                  </div>
-                </UFormField>
               </div>
             </div>
           </template>
 
-          <div class="overflow-hidden rounded-lg border border-default">
+          <div v-if="isSprintTaskView" class="space-y-3">
+            <div v-if="sprintItemsPending" class="space-y-3">
+              <USkeleton v-for="index in 4" :key="index" class="h-24" />
+            </div>
+
+            <div v-else-if="sprintItems.length" class="space-y-3">
+              <UCollapsible
+                v-for="item in sprintItems"
+                :key="item.id"
+                :default-open="false"
+                class="rounded-xl border border-default bg-default/50"
+              >
+                <template #default="{ open }">
+                  <button
+                    class="flex w-full items-start justify-between gap-4 p-4 text-left hover:bg-elevated/40"
+                  >
+                    <div class="min-w-0 space-y-2">
+                      <div class="flex flex-wrap items-center gap-2">
+                        <UBadge color="primary" variant="soft">AZ-{{ item.id }}</UBadge>
+                        <UBadge color="neutral" variant="soft">{{ item.type }}</UBadge>
+                        <UBadge :color="stateColor(item.state)" variant="soft">{{ item.state }}</UBadge>
+                        <UBadge
+                          v-if="totalRelations(item)"
+                          color="neutral"
+                          variant="outline"
+                        >
+                          {{ totalRelations(item) }} linked
+                        </UBadge>
+                      </div>
+                      <p class="truncate text-sm font-semibold text-highlighted">
+                        {{ item.title }}
+                      </p>
+                      <p class="truncate text-xs text-muted">
+                        {{ item.assignedTo || "Unassigned" }} ·
+                        {{ item.iterationPath || "No iteration" }}
+                      </p>
+                    </div>
+                    <UIcon
+                      :name="open ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'"
+                      class="mt-1 size-4 text-muted"
+                    />
+                  </button>
+                </template>
+
+                <template #content>
+                  <div class="space-y-4 border-t border-default p-4">
+                    <div>
+                      <h3 class="mb-2 text-xs font-semibold uppercase text-muted">
+                        Child tasks
+                      </h3>
+                      <div v-if="childItems(item).length" class="space-y-2">
+                        <div
+                          v-for="child in childItems(item)"
+                          :key="child.id"
+                          class="flex items-center justify-between gap-3 rounded-lg border border-default bg-elevated/30 px-3 py-2"
+                        >
+                          <button
+                            class="min-w-0 truncate text-left text-sm text-highlighted hover:text-primary"
+                            @click="openDetail(child)"
+                          >
+                            AZ-{{ child.id }} · {{ child.title }}
+                          </button>
+                          <div class="flex shrink-0 items-center gap-2">
+                            <UBadge color="neutral" variant="soft">{{ child.type }}</UBadge>
+                            <UBadge :color="stateColor(child.state)" variant="soft">{{ child.state }}</UBadge>
+                          </div>
+                        </div>
+                      </div>
+                      <p
+                        v-else
+                        class="rounded-lg border border-dashed border-default p-3 text-sm text-muted"
+                      >
+                        No child task linked.
+                      </p>
+                    </div>
+
+                    <div>
+                      <h3 class="mb-2 text-xs font-semibold uppercase text-muted">
+                        Related issues
+                      </h3>
+                      <div v-if="relatedItems(item).length" class="space-y-2">
+                        <div
+                          v-for="related in relatedItems(item)"
+                          :key="related.id"
+                          class="flex items-center justify-between gap-3 rounded-lg border border-default bg-elevated/30 px-3 py-2"
+                        >
+                          <button
+                            class="min-w-0 truncate text-left text-sm text-highlighted hover:text-primary"
+                            @click="openDetail(related)"
+                          >
+                            AZ-{{ related.id }} · {{ related.title }}
+                          </button>
+                          <div class="flex shrink-0 items-center gap-2">
+                            <UBadge color="neutral" variant="soft">{{ related.type }}</UBadge>
+                            <UBadge :color="stateColor(related.state)" variant="soft">{{ related.state }}</UBadge>
+                          </div>
+                        </div>
+                      </div>
+                      <p
+                        v-else
+                        class="rounded-lg border border-dashed border-default p-3 text-sm text-muted"
+                      >
+                        No related issue linked.
+                      </p>
+                    </div>
+                  </div>
+                </template>
+              </UCollapsible>
+            </div>
+
+            <p
+              v-else
+              class="rounded-lg border border-dashed border-default p-8 text-center text-sm text-muted"
+            >
+              No PBI/story in this sprint yet.
+            </p>
+          </div>
+
+          <div v-else class="overflow-hidden rounded-lg border border-default">
             <div
               class="grid grid-cols-[112px_minmax(300px,1fr)_140px_170px_170px_150px_88px] items-center gap-2 border-b border-default bg-elevated/40 px-3 py-2 text-[11px] font-medium uppercase text-muted"
             >
@@ -1435,6 +1568,7 @@ async function addOrganization() {
           </div>
 
           <div
+            v-if="!isSprintTaskView"
             class="mt-4 flex flex-col gap-3 border-t border-default pt-4 sm:flex-row sm:items-center sm:justify-between"
           >
             <p class="text-sm text-muted">
@@ -1463,198 +1597,14 @@ async function addOrganization() {
           </div>
 
           <p
-            v-if="!boardPending && activeProject && !boardItems.length"
+            v-if="!isSprintTaskView && !boardPending && activeProject && !boardItems.length"
             class="mt-4 rounded-lg border border-dashed border-default p-8 text-center text-sm text-muted"
           >
             No work items match this filter.
           </p>
         </UCard>
 
-        <UCard v-if="activeSection === 'sprint-task'" variant="subtle">
-          <template #header>
-            <div
-              class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"
-            >
-              <div>
-                <h2 class="text-lg font-semibold text-highlighted">
-                  Sprint Task
-                </h2>
-                <p class="text-sm text-muted">
-                  {{ selectedSprint?.name || "No sprint selected" }} ·
-                  {{ sprintItems.length }} PBI / story
-                </p>
-              </div>
-              <UButton
-                icon="i-lucide-refresh-cw"
-                :loading="sprintItemsPending"
-                color="neutral"
-                variant="subtle"
-                :disabled="!selectedSprintPath"
-                @click="refreshSprintItems()"
-              >
-                Refresh sprint
-              </UButton>
-            </div>
-          </template>
-
-          <div class="mb-4 grid gap-3 md:grid-cols-2">
-            <USelectMenu
-              v-model="selectedTeam"
-              :items="teamOptions"
-              :loading="teamsPending"
-              placeholder="Team"
-              class="w-full"
-              searchable
-            />
-            <USelectMenu
-              v-model="selectedSprintPath"
-              :items="sprintOptions"
-              :loading="sprintsPending"
-              :disabled="!selectedTeam"
-              placeholder="Sprint iteration"
-              class="w-full"
-              searchable
-            />
-          </div>
-
-          <div v-if="sprintItemsPending" class="space-y-3">
-            <USkeleton v-for="index in 4" :key="index" class="h-24" />
-          </div>
-
-          <div v-else-if="sprintItems.length" class="space-y-3">
-            <UCollapsible
-              v-for="item in sprintItems"
-              :key="item.id"
-              :default-open="false"
-              class="rounded-xl border border-default bg-default/50"
-            >
-              <template #default="{ open }">
-                <button
-                  class="flex w-full items-start justify-between gap-4 p-4 text-left hover:bg-elevated/40"
-                >
-                  <div class="min-w-0 space-y-2">
-                    <div class="flex flex-wrap items-center gap-2">
-                      <UBadge color="primary" variant="soft"
-                        >AZ-{{ item.id }}</UBadge
-                      >
-                      <UBadge color="neutral" variant="soft">{{
-                        item.type
-                      }}</UBadge>
-                      <UBadge :color="stateColor(item.state)" variant="soft">{{
-                        item.state
-                      }}</UBadge>
-                      <UBadge
-                        v-if="totalRelations(item)"
-                        color="neutral"
-                        variant="outline"
-                      >
-                        {{ totalRelations(item) }} linked
-                      </UBadge>
-                    </div>
-                    <p class="truncate text-sm font-semibold text-highlighted">
-                      {{ item.title }}
-                    </p>
-                    <p class="truncate text-xs text-muted">
-                      {{ item.assignedTo || "Unassigned" }} ·
-                      {{ item.iterationPath || "No iteration" }}
-                    </p>
-                  </div>
-                  <UIcon
-                    :name="
-                      open ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'
-                    "
-                    class="mt-1 size-4 text-muted"
-                  />
-                </button>
-              </template>
-
-              <template #content>
-                <div class="space-y-4 border-t border-default p-4">
-                  <div>
-                    <h3 class="mb-2 text-xs font-semibold uppercase text-muted">
-                      Child tasks
-                    </h3>
-                    <div v-if="childItems(item).length" class="space-y-2">
-                      <div
-                        v-for="child in childItems(item)"
-                        :key="child.id"
-                        class="flex items-center justify-between gap-3 rounded-lg border border-default bg-elevated/30 px-3 py-2"
-                      >
-                        <button
-                          class="min-w-0 truncate text-left text-sm text-highlighted hover:text-primary"
-                          @click="openDetail(child)"
-                        >
-                          AZ-{{ child.id }} · {{ child.title }}
-                        </button>
-                        <div class="flex shrink-0 items-center gap-2">
-                          <UBadge color="neutral" variant="soft">{{
-                            child.type
-                          }}</UBadge>
-                          <UBadge
-                            :color="stateColor(child.state)"
-                            variant="soft"
-                            >{{ child.state }}</UBadge
-                          >
-                        </div>
-                      </div>
-                    </div>
-                    <p
-                      v-else
-                      class="rounded-lg border border-dashed border-default p-3 text-sm text-muted"
-                    >
-                      No child task linked.
-                    </p>
-                  </div>
-
-                  <div>
-                    <h3 class="mb-2 text-xs font-semibold uppercase text-muted">
-                      Related issues
-                    </h3>
-                    <div v-if="relatedItems(item).length" class="space-y-2">
-                      <div
-                        v-for="related in relatedItems(item)"
-                        :key="related.id"
-                        class="flex items-center justify-between gap-3 rounded-lg border border-default bg-elevated/30 px-3 py-2"
-                      >
-                        <button
-                          class="min-w-0 truncate text-left text-sm text-highlighted hover:text-primary"
-                          @click="openDetail(related)"
-                        >
-                          AZ-{{ related.id }} · {{ related.title }}
-                        </button>
-                        <div class="flex shrink-0 items-center gap-2">
-                          <UBadge color="neutral" variant="soft">{{
-                            related.type
-                          }}</UBadge>
-                          <UBadge
-                            :color="stateColor(related.state)"
-                            variant="soft"
-                            >{{ related.state }}</UBadge
-                          >
-                        </div>
-                      </div>
-                    </div>
-                    <p
-                      v-else
-                      class="rounded-lg border border-dashed border-default p-3 text-sm text-muted"
-                    >
-                      No related issue linked.
-                    </p>
-                  </div>
-                </div>
-              </template>
-            </UCollapsible>
-          </div>
-
-          <p
-            v-else
-            class="rounded-lg border border-dashed border-default p-8 text-center text-sm text-muted"
-          >
-            No PBI/story in this sprint yet.
-          </p>
-        </UCard>
-
-        <template v-if="activeSection !== 'sprint-task'">
+        <template v-if="activeSection !== 'tasks'">
           <UCard variant="subtle">
             <template #header>
               <div>

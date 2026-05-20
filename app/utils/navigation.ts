@@ -106,8 +106,10 @@ export function buildProjectSectionRoute(
   section: ProjectSection = "tasks",
   selection: { team?: string; sprint?: string } = {},
 ): { path: string; query: Record<string, string> } {
+  const targetSection = section === "sprint-task" ? "tasks" : section
+
   return {
-    path: buildProjectSectionPath(organization, project, section),
+    path: buildProjectSectionPath(organization, project, targetSection),
     query: buildProjectStateQuery(currentQuery, selection),
   }
 }
