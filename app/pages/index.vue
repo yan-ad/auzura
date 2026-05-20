@@ -8,6 +8,7 @@ import type {
 } from "~/types/azure-devops";
 
 type IdentityFilterMode = "anyone" | "me" | "members";
+type SectionView = "tasks" | "report";
 
 const toast = useToast();
 const route = useRoute();
@@ -20,7 +21,6 @@ const selectedOrganization = useCookie<string>("auzura:organization", {
 const selectedProject = useCookie<string>("auzura:selected-project", {
   default: () => "",
 });
-const selectedView = ref<"all">("all");
 const selectedItemId = ref<number | null>(null);
 const isDetailOpen = ref(false);
 const { loggedIn, user, fetch: refreshSession } = useUserSession();
@@ -59,18 +59,28 @@ function getRouteParam(value: unknown): string {
     : String(value || "").trim();
 }
 
-function buildRoutePath(organization: string, project: string): string {
+function getSectionFromPath(path: string): SectionView {
+  if (path.endsWith("/report")) return "report";
+  return "tasks";
+}
+
+function buildRoutePath(
+  organization: string,
+  project: string,
+  section: SectionView = "tasks",
+): string {
   const org = organization.trim();
   const proj = project.trim();
   if (!org) return "/";
   if (!proj) return `/${encodeURIComponent(org)}`;
-  return `/${encodeURIComponent(org)}/${encodeURIComponent(proj)}`;
+  return `/${encodeURIComponent(org)}/${encodeURIComponent(proj)}/${section}`;
 }
 
 const routeOrganization = computed(() =>
   getRouteParam(route.params.organization),
 );
 const routeProject = computed(() => getRouteParam(route.params.project));
+const activeSection = computed<SectionView>(() => getSectionFromPath(route.path));
 
 if (routeOrganization.value) {
   selectedOrganization.value = routeOrganization.value;
@@ -174,7 +184,7 @@ watch(
 watch(
   [activeOrganization, selectedProject],
   async ([organization, project]) => {
-    const targetPath = buildRoutePath(organization, project || "");
+    const targetPath = buildRoutePath(organization, project || "", activeSection.value);
     if (route.path !== targetPath) {
       await router.replace(targetPath);
     }
@@ -321,13 +331,29 @@ const {
   },
 );
 
-watch(
-  [activeProject, canLoadAzure],
-  async ([project, isLoggedIn]) => {
-    if (project && isLoggedIn) {
+let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+
+function queueRefresh(scope: "all" | "dashboard" = "all", wait = 350) {
+  if (refreshTimer) {
+    clearTimeout(refreshTimer);
+  }
+
+  refreshTimer = setTimeout(async () => {
+    if (!canLoadAzure.value || !activeProject.value) return;
+
+    if (scope === "all" || activeSection.value === "tasks") {
       await refreshBoard();
-      await refreshDashboard();
     }
+
+    await refreshDashboard();
+  }, wait);
+}
+
+watch(
+  [activeProject, canLoadAzure, activeSection],
+  ([project, isLoggedIn, section]) => {
+    if (!project || !isLoggedIn) return;
+    queueRefresh(section === "report" ? "dashboard" : "all", 0);
   },
   { immediate: true },
 );
@@ -347,16 +373,15 @@ watch(
   },
 );
 
-watch([boardUrl, canLoadAzure], async ([, isLoggedIn]) => {
+watch([boardUrl, canLoadAzure], ([, isLoggedIn]) => {
   if (activeProject.value && isLoggedIn) {
-    await refreshBoard();
-    await refreshDashboard();
+    queueRefresh("all");
   }
 });
 
-watch([dashboardUrl, canLoadAzure], async ([, isLoggedIn]) => {
+watch([dashboardUrl, canLoadAzure], ([, isLoggedIn]) => {
   if (activeProject.value && isLoggedIn) {
-    await refreshDashboard();
+    queueRefresh("dashboard");
   }
 });
 
@@ -456,19 +481,28 @@ const chartSections = computed(() => [
   },
 ]);
 
-const viewNavigation = computed<NavigationMenuItem[][]>(() => [
-  [
-    {
-      label: "All Task",
-      icon: "i-lucide-list-filter",
-      badge: String(listTotal.value),
-      active: selectedView.value === "all",
-      onSelect: () => {
-        selectedView.value = "all";
-      },
-    },
-  ],
-]);
+async function goToSection(section: SectionView) {
+  const targetPath = buildRoutePath(activeOrganization.value, selectedProject.value || "", section);
+  if (route.path !== targetPath) {
+    await router.replace(targetPath);
+  }
+}
+
+const viewNavigation = computed<NavigationMenuItem[][]>(() => [[
+  {
+    label: "All Task",
+    icon: "i-lucide-list-filter",
+    badge: String(listTotal.value),
+    active: activeSection.value === "tasks",
+    onSelect: async () => await goToSection("tasks"),
+  },
+  {
+    label: "Overview",
+    icon: "i-lucide-chart-no-axes-column",
+    active: activeSection.value === "report",
+    onSelect: async () => await goToSection("report"),
+  },
+]]);
 
 function formatDate(value?: string) {
   if (!value) return "—";
@@ -769,11 +803,11 @@ async function openDetail(item: AzureWorkItem) {
           <template #left>
             <UButtonGroup>
               <UButton
-                icon="i-lucide-list-filter"
+                :icon="activeSection === 'tasks' ? 'i-lucide-list-filter' : 'i-lucide-chart-no-axes-column'"
                 color="primary"
                 variant="subtle"
               >
-                All Task
+                {{ activeSection === "tasks" ? "All Task" : "Dashboard Overview" }}
               </UButton>
             </UButtonGroup>
           </template>
@@ -794,7 +828,9 @@ async function openDetail(item: AzureWorkItem) {
       <template #body>
         <div class="space-y-6">
           <section class="space-y-3">
-            <UBadge color="primary" variant="soft"> All Task </UBadge>
+            <UBadge color="primary" variant="soft">
+              {{ activeSection === "tasks" ? "All Task" : "Dashboard Overview" }}
+            </UBadge>
             <div
               class="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between"
             >
@@ -812,7 +848,7 @@ async function openDetail(item: AzureWorkItem) {
               <UButton
                 icon="i-lucide-plus"
                 :disabled="!activeProject"
-                @click="selectedView = 'all'"
+                @click="goToSection('tasks')"
               >
                 New work item
               </UButton>
@@ -950,7 +986,7 @@ async function openDetail(item: AzureWorkItem) {
             </div>
           </UCard>
 
-          <UCard variant="subtle">
+          <UCard v-if="activeSection === 'tasks'" variant="subtle">
             <template #header>
               <div class="space-y-4">
                 <div
