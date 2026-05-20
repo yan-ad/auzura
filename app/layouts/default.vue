@@ -4,6 +4,7 @@ import type { AzureOrganization, AzureProject } from "~/types/azure-devops";
 
 import {
   buildProjectSectionPath,
+  buildProjectStateQuery,
   getProjectSectionFromPath,
   type ProjectSection,
 } from "~/utils/navigation";
@@ -47,6 +48,15 @@ function getRouteParam(value: unknown): string {
     : String(value || "").trim();
 }
 
+async function persistProjectStateQuery(selection: { team?: string; sprint?: string } = {}) {
+  const query = buildProjectStateQuery(route.query, {
+    team: selection.team ?? selectedTeam.value,
+    sprint: selection.sprint ?? selectedSprintPath.value,
+  });
+  if (route.query.team === query.team && route.query.sprint === query.sprint) return;
+  await router.replace({ path: route.path, query });
+}
+
 function withOrganizationQuery(path: string) {
   return `${path}${organizationQuery.value ? `&${organizationQuery.value}` : ""}`;
 }
@@ -55,17 +65,23 @@ const routeOrganization = computed(() =>
   getRouteParam(route.params.organization),
 );
 const routeProject = computed(() => getRouteParam(route.params.project));
+const routeTeam = computed(() => getRouteParam(route.query.team));
+const routeSprint = computed(() => getRouteParam(route.query.sprint));
 const activeSection = computed<SectionView>(() =>
   getProjectSectionFromPath(route.path),
 );
 
 watch(
-  [routeOrganization, routeProject],
-  ([organization, project]) => {
+  [routeOrganization, routeProject, routeTeam, routeSprint],
+  ([organization, project, team, sprint]) => {
     if (organization && organization !== activeOrganization.value)
       selectedOrganization.value = organization;
     if (project && project !== selectedProject.value)
       selectedProject.value = project;
+    if (team && team !== selectedTeam.value)
+      selectedTeam.value = team;
+    if (sprint && sprint !== selectedSprintPath.value)
+      selectedSprintPath.value = sprint;
   },
   { immediate: true },
 );
@@ -79,7 +95,15 @@ watch(
       project || "",
       activeSection.value,
     );
-    if (route.path !== targetPath) await router.replace(targetPath);
+    if (route.path !== targetPath) {
+      await router.replace({
+        path: targetPath,
+        query: buildProjectStateQuery(route.query, {
+          team: selectedTeam.value,
+          sprint: selectedSprintPath.value,
+        }),
+      });
+    }
   },
 );
 
@@ -286,10 +310,7 @@ const viewNavigation = computed<NavigationMenuItem[][]>(() => {
       teamsGroup.push({
         label: team.name,
         icon:
-          (
-            selectedProject.value === group.project &&
-            selectedTeam.value === team.name
-          ) ?
+          selectedProject.value === group.project && selectedTeam.value === team.name ?
             "i-lucide-users-round"
           : "i-lucide-users",
         active:
@@ -300,6 +321,7 @@ const viewNavigation = computed<NavigationMenuItem[][]>(() => {
           selectedProject.value = group.project;
           selectedTeam.value = team.name;
           await goToSection("sprint-task");
+          await persistProjectStateQuery({ team: team.name });
         },
       });
     }

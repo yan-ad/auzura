@@ -559,6 +559,24 @@ const WORK_ITEM_FIELDS = [
   "Microsoft.VSTS.Common.Severity",
 ];
 
+export function buildWorkItemBatchBody(
+  ids: number[],
+  options: { includeRelations?: boolean } = {},
+): { ids: number[]; fields?: string[]; $expand: "Links" | "Relations" } {
+  if (options.includeRelations) {
+    return {
+      ids,
+      $expand: "Relations",
+    };
+  }
+
+  return {
+    ids,
+    fields: WORK_ITEM_FIELDS,
+    $expand: "Links",
+  };
+}
+
 async function fetchWorkItemsByIds(
   project: string,
   ids: number[],
@@ -580,11 +598,7 @@ async function fetchWorkItemsByIds(
       ),
       {
         method: "POST",
-        body: {
-          ids: chunk,
-          fields: WORK_ITEM_FIELDS,
-          $expand: options.includeRelations ? "Relations" : "Links",
-        },
+        body: buildWorkItemBatchBody(chunk, options),
       },
     );
 
