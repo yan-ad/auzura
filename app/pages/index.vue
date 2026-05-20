@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { DropdownMenuItem, NavigationMenuItem } from "@nuxt/ui";
+import { buildProjectSectionPath, getProjectSectionFromPath, type ProjectSection } from "~/utils/navigation";
 import type {
   AzureOrganization,
   AzureProject,
@@ -7,10 +8,11 @@ import type {
   AzureTeam,
   AzureUser,
   AzureWorkItem,
+  AzureWorkItemRelation,
 } from "~/types/azure-devops";
 
 type IdentityFilterMode = "anyone" | "me" | "members";
-type SectionView = "tasks" | "report";
+type SectionView = ProjectSection;
 
 const toast = useToast();
 const route = useRoute();
@@ -63,29 +65,13 @@ function getRouteParam(value: unknown): string {
     : String(value || "").trim();
 }
 
-function getSectionFromPath(path: string): SectionView {
-  if (path.endsWith("/report")) return "report";
-  return "tasks";
-}
-
-function buildRoutePath(
-  organization: string,
-  project: string,
-  section: SectionView = "tasks",
-): string {
-  const org = organization.trim();
-  const proj = project.trim();
-  if (!org) return "/";
-  if (!proj) return `/${encodeURIComponent(org)}`;
-  return `/${encodeURIComponent(org)}/${encodeURIComponent(proj)}/${section}`;
-}
 
 const routeOrganization = computed(() =>
   getRouteParam(route.params.organization),
 );
 const routeProject = computed(() => getRouteParam(route.params.project));
 const activeSection = computed<SectionView>(() =>
-  getSectionFromPath(route.path),
+  getProjectSectionFromPath(route.path),
 );
 
 if (routeOrganization.value) {
@@ -249,6 +235,38 @@ const {
 });
 const sprintItems = computed(() => sprintItemsData.value?.items ?? []);
 
+function relationTargetId(relation: AzureWorkItemRelation): number | undefined {
+  const match = relation.url?.match(/workItems\/(\d+)$/i);
+  if (!match?.[1]) return undefined;
+
+  const id = Number(match[1]);
+  return Number.isFinite(id) ? id : undefined;
+}
+
+function relationItems(item: AzureWorkItem, relationType: string): AzureWorkItem[] {
+  const relatedById = new Map((item.relatedItems ?? []).map((relatedItem) => [relatedItem.id, relatedItem]));
+
+  return (item.relations ?? [])
+    .filter((relation) => relation.rel === relationType)
+    .map((relation) => {
+      const id = relationTargetId(relation);
+      return id ? relatedById.get(id) : undefined;
+    })
+    .filter((relatedItem): relatedItem is AzureWorkItem => Boolean(relatedItem));
+}
+
+function childItems(item: AzureWorkItem): AzureWorkItem[] {
+  return relationItems(item, "System.LinkTypes.Hierarchy-Forward");
+}
+
+function relatedItems(item: AzureWorkItem): AzureWorkItem[] {
+  return relationItems(item, "System.LinkTypes.Related");
+}
+
+function totalRelations(item: AzureWorkItem): number {
+  return childItems(item).length + relatedItems(item).length;
+}
+
 watch(
   [activeOrganization, canLoadAzure],
   async ([, canLoad]) => {
@@ -284,7 +302,7 @@ watch(
 watch(
   [activeOrganization, selectedProject],
   async ([organization, project]) => {
-    const targetPath = buildRoutePath(
+    const targetPath = buildProjectSectionPath(
       organization,
       project || "",
       activeSection.value,
@@ -642,7 +660,7 @@ const chartSections = computed(() => [
 ]);
 
 async function goToSection(section: SectionView) {
-  const targetPath = buildRoutePath(
+  const targetPath = buildProjectSectionPath(
     activeOrganization.value,
     selectedProject.value || "",
     section,
@@ -660,6 +678,12 @@ const viewNavigation = computed<NavigationMenuItem[][]>(() => [
       badge: String(listTotal.value),
       active: activeSection.value === "tasks",
       onSelect: async () => await goToSection("tasks"),
+    },
+    {
+      label: "Sprint Task",
+      icon: "i-lucide-list-tree",
+      active: activeSection.value === "sprint-task",
+      onSelect: async () => await goToSection("sprint-task"),
     },
     {
       label: "Overview",
@@ -908,7 +932,8 @@ async function addOrganization() {
                 variant="subtle"
               >
                 {{
-                  activeSection === "tasks" ? "All Task" : "Dashboard Overview"
+                  activeSection === "tasks" ? "All Task" :
+                  activeSection === "sprint-task" ? "Sprint Task" : "Dashboard Overview"
                 }}
               </UButton>
             </UButtonGroup>
@@ -1267,7 +1292,115 @@ async function addOrganization() {
             </p>
           </UCard>
 
-          <template>
+          <UCard v-if="activeSection === 'sprint-task'" variant="subtle">
+            <template #header>
+              <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h2 class="text-lg font-semibold text-highlighted">Sprint Task</h2>
+                  <p class="text-sm text-muted">
+                    {{ selectedSprint?.name || "No sprint selected" }} · {{ sprintItems.length }} PBI / story
+                  </p>
+                </div>
+                <UButton
+                  icon="i-lucide-refresh-cw"
+                  :loading="sprintItemsPending"
+                  color="neutral"
+                  variant="subtle"
+                  :disabled="!selectedSprintPath"
+                  @click="refreshSprintItems()"
+                >
+                  Refresh sprint
+                </UButton>
+              </div>
+            </template>
+
+            <div v-if="sprintItemsPending" class="space-y-3">
+              <USkeleton v-for="index in 4" :key="index" class="h-24" />
+            </div>
+
+            <div v-else-if="sprintItems.length" class="space-y-3">
+              <UCollapsible
+                v-for="item in sprintItems"
+                :key="item.id"
+                :default-open="false"
+                class="rounded-xl border border-default bg-default/50"
+              >
+                <template #default="{ open }">
+                  <button class="flex w-full items-start justify-between gap-4 p-4 text-left hover:bg-elevated/40">
+                    <div class="min-w-0 space-y-2">
+                      <div class="flex flex-wrap items-center gap-2">
+                        <UBadge color="primary" variant="soft">AZ-{{ item.id }}</UBadge>
+                        <UBadge color="neutral" variant="soft">{{ item.type }}</UBadge>
+                        <UBadge :color="stateColor(item.state)" variant="soft">{{ item.state }}</UBadge>
+                        <UBadge v-if="totalRelations(item)" color="neutral" variant="outline">
+                          {{ totalRelations(item) }} linked
+                        </UBadge>
+                      </div>
+                      <p class="truncate text-sm font-semibold text-highlighted">{{ item.title }}</p>
+                      <p class="truncate text-xs text-muted">
+                        {{ item.assignedTo || "Unassigned" }} · {{ item.iterationPath || "No iteration" }}
+                      </p>
+                    </div>
+                    <UIcon :name="open ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'" class="mt-1 size-4 text-muted" />
+                  </button>
+                </template>
+
+                <template #content>
+                  <div class="space-y-4 border-t border-default p-4">
+                    <div>
+                      <h3 class="mb-2 text-xs font-semibold uppercase text-muted">Child tasks</h3>
+                      <div v-if="childItems(item).length" class="space-y-2">
+                        <div
+                          v-for="child in childItems(item)"
+                          :key="child.id"
+                          class="flex items-center justify-between gap-3 rounded-lg border border-default bg-elevated/30 px-3 py-2"
+                        >
+                          <button class="min-w-0 truncate text-left text-sm text-highlighted hover:text-primary" @click="openDetail(child)">
+                            AZ-{{ child.id }} · {{ child.title }}
+                          </button>
+                          <div class="flex shrink-0 items-center gap-2">
+                            <UBadge color="neutral" variant="soft">{{ child.type }}</UBadge>
+                            <UBadge :color="stateColor(child.state)" variant="soft">{{ child.state }}</UBadge>
+                          </div>
+                        </div>
+                      </div>
+                      <p v-else class="rounded-lg border border-dashed border-default p-3 text-sm text-muted">
+                        No child task linked.
+                      </p>
+                    </div>
+
+                    <div>
+                      <h3 class="mb-2 text-xs font-semibold uppercase text-muted">Related issues</h3>
+                      <div v-if="relatedItems(item).length" class="space-y-2">
+                        <div
+                          v-for="related in relatedItems(item)"
+                          :key="related.id"
+                          class="flex items-center justify-between gap-3 rounded-lg border border-default bg-elevated/30 px-3 py-2"
+                        >
+                          <button class="min-w-0 truncate text-left text-sm text-highlighted hover:text-primary" @click="openDetail(related)">
+                            AZ-{{ related.id }} · {{ related.title }}
+                          </button>
+                          <div class="flex shrink-0 items-center gap-2">
+                            <UBadge color="neutral" variant="soft">{{ related.type }}</UBadge>
+                            <UBadge :color="stateColor(related.state)" variant="soft">{{ related.state }}</UBadge>
+                          </div>
+                        </div>
+                      </div>
+                      <p v-else class="rounded-lg border border-dashed border-default p-3 text-sm text-muted">
+                        No related issue linked.
+                      </p>
+                    </div>
+                  </div>
+                </template>
+              </UCollapsible>
+            </div>
+
+            <p v-else class="rounded-lg border border-dashed border-default p-8 text-center text-sm text-muted">
+              No PBI/story in this sprint yet.
+            </p>
+          </UCard>
+
+          <template v-if="activeSection !== 'sprint-task'">
             <UCard variant="subtle">
               <template #header>
                 <div>

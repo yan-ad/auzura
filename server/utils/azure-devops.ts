@@ -7,6 +7,7 @@ import type {
   AzureUser,
   AzureWorkItem,
   AzureWorkItemInput,
+  AzureWorkItemRelation,
 } from "../../app/types/azure-devops";
 import {
   getAzureAuthorizationHeader,
@@ -42,6 +43,7 @@ type AzureWorkItemResponse = {
   rev?: number;
   url?: string;
   fields?: Record<string, unknown>;
+  relations?: AzureWorkItemRelation[];
   _links?: {
     html?: {
       href?: string;
@@ -463,6 +465,7 @@ export function normalizeWorkItem(item: AzureWorkItemResponse): AzureWorkItem {
       "Microsoft.VSTS.Common.AcceptanceCriteria",
     ),
     tags,
+    relations: item.relations ?? [],
     webUrl: item._links?.html?.href ?? "",
   };
 }
@@ -476,6 +479,49 @@ function assertProject(project?: string): string {
   }
 
   return project;
+}
+
+function getRelationTargetId(
+  relation: AzureWorkItemRelation,
+): number | undefined {
+  const match = relation.url?.match(/workItems\/(\d+)$/i);
+  if (!match?.[1]) return undefined;
+
+  const id = Number(match[1]);
+  return Number.isFinite(id) ? id : undefined;
+}
+
+export function getRelationTargetIds(
+  relations: AzureWorkItemRelation[] = [],
+): number[] {
+  return relations
+    .map(getRelationTargetId)
+    .filter((id): id is number => typeof id === "number");
+}
+
+export function groupWorkItemRelations(
+  item: AzureWorkItem,
+  relatedItems: AzureWorkItem[] = [],
+): { children: AzureWorkItem[]; related: AzureWorkItem[] } {
+  const itemById = new Map(
+    relatedItems.map((relatedItem) => [relatedItem.id, relatedItem]),
+  );
+  const children: AzureWorkItem[] = [];
+  const related: AzureWorkItem[] = [];
+
+  for (const relation of item.relations ?? []) {
+    const targetId = getRelationTargetId(relation);
+    const targetItem = targetId ? itemById.get(targetId) : undefined;
+    if (!targetItem) continue;
+
+    if (relation.rel === "System.LinkTypes.Hierarchy-Forward") {
+      children.push(targetItem);
+    } else if (relation.rel === "System.LinkTypes.Related") {
+      related.push(targetItem);
+    }
+  }
+
+  return { children, related };
 }
 
 const WORK_ITEM_BATCH_SIZE = 200;
@@ -516,6 +562,7 @@ const WORK_ITEM_FIELDS = [
 async function fetchWorkItemsByIds(
   project: string,
   ids: number[],
+  options: { includeRelations?: boolean } = {},
 ): Promise<AzureWorkItem[]> {
   if (!ids.length) {
     return [];
@@ -536,7 +583,7 @@ async function fetchWorkItemsByIds(
         body: {
           ids: chunk,
           fields: WORK_ITEM_FIELDS,
-          $expand: "Links",
+          $expand: options.includeRelations ? "Relations" : "Links",
         },
       },
     );
@@ -738,10 +785,22 @@ export async function listSprintPbis(
     },
   );
 
-  return await fetchWorkItemsByIds(
+  const items = await fetchWorkItemsByIds(
     project,
     wiql.workItems.map((item) => item.id),
+    { includeRelations: true },
   );
+  const relationIds = Array.from(
+    new Set(items.flatMap((item) => getRelationTargetIds(item.relations))),
+  );
+  const relatedItems = await fetchWorkItemsByIds(project, relationIds);
+
+  return items.map((item) => ({
+    ...item,
+    relatedItems: relatedItems.filter((relatedItem) =>
+      getRelationTargetIds(item.relations).includes(relatedItem.id),
+    ),
+  }));
 }
 
 function getCurrentUserCandidates(currentUser: {

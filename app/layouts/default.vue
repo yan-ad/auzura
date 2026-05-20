@@ -8,7 +8,9 @@ import type {
   AzureWorkItem,
 } from "~/types/azure-devops";
 
-type SectionView = "tasks" | "report";
+import { buildProjectSectionPath, getProjectSectionFromPath, type ProjectSection } from "~/utils/navigation";
+
+type SectionView = ProjectSection;
 
 const route = useRoute();
 const router = useRouter();
@@ -43,22 +45,6 @@ function getRouteParam(value: unknown): string {
     : String(value || "").trim();
 }
 
-function getSectionFromPath(path: string): SectionView {
-  if (path.endsWith("/report")) return "report";
-  return "tasks";
-}
-
-function buildRoutePath(
-  organization: string,
-  project: string,
-  section: SectionView = "tasks",
-): string {
-  const org = organization.trim();
-  const proj = project.trim();
-  if (!org) return "/";
-  if (!proj) return `/${encodeURIComponent(org)}`;
-  return `/${encodeURIComponent(org)}/${encodeURIComponent(proj)}/${section}`;
-}
 
 function withOrganizationQuery(path: string) {
   return `${path}${organizationQuery.value ? `&${organizationQuery.value}` : ""}`;
@@ -69,7 +55,7 @@ const routeOrganization = computed(() =>
 );
 const routeProject = computed(() => getRouteParam(route.params.project));
 const activeSection = computed<SectionView>(() =>
-  getSectionFromPath(route.path),
+  getProjectSectionFromPath(route.path),
 );
 
 watch(
@@ -87,7 +73,7 @@ watch(
   [activeOrganization, selectedProject],
   async ([organization, project]) => {
     if (!organization) return;
-    const targetPath = buildRoutePath(
+    const targetPath = buildProjectSectionPath(
       organization,
       project || "",
       activeSection.value,
@@ -311,7 +297,7 @@ const organizationProjectMenuItems = computed<DropdownMenuItem[][]>(() => [
 ]);
 
 async function goToSection(section: SectionView) {
-  const targetPath = buildRoutePath(
+  const targetPath = buildProjectSectionPath(
     activeOrganization.value,
     selectedProject.value || "",
     section,
@@ -351,26 +337,19 @@ const viewNavigation = computed<NavigationMenuItem[][]>(() => {
     teamsGroup.push(teamItem);
   }
 
-  const pbiGroup: NavigationMenuItem[] = [];
+  const sprintTaskGroup: NavigationMenuItem[] = [];
   if (selectedSprint.value) {
-    pbiGroup.push({
-      label: `${selectedSprint.value.name} (${sprintItems.value.length})`,
+    sprintTaskGroup.push({
+      label: "Sprint",
       type: "label",
     });
-    if (sprintItemsPending.value) {
-      pbiGroup.push({
-        label: "Loading...",
-        icon: "i-lucide-loader",
-        disabled: true,
-      });
-    } else {
-      for (const item of sprintItems.value.slice(0, 12)) {
-        pbiGroup.push({
-          label: `#${item.id} ${item.title}`,
-          icon: "i-lucide-circle-dot",
-        });
-      }
-    }
+    sprintTaskGroup.push({
+      label: "Sprint Task",
+      icon: "i-lucide-list-tree",
+      badge: String(sprintItems.value.length),
+      active: activeSection.value === "sprint-task",
+      onSelect: async () => await goToSection("sprint-task"),
+    });
   }
 
   return [
@@ -389,7 +368,7 @@ const viewNavigation = computed<NavigationMenuItem[][]>(() => {
       },
     ],
     ...(teamOptions.value.length ? [teamsGroup] : []),
-    ...(pbiGroup.length ? [pbiGroup] : []),
+    ...(sprintTaskGroup.length ? [sprintTaskGroup] : []),
   ];
 });
 </script>

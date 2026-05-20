@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildProjectTeamsUrl, buildWorkItemsWiql, chunkWorkItemIds, isAssignedToCandidate, isCreatedByCandidate, normalizeUser } from './azure-devops'
+import { buildProjectTeamsUrl, buildWorkItemsWiql, chunkWorkItemIds, getRelationTargetIds, groupWorkItemRelations, isAssignedToCandidate, isCreatedByCandidate, normalizeUser } from './azure-devops'
 
 describe('buildWorkItemsWiql', () => {
   it('uses Azure DevOps @project context instead of interpolating a project literal', () => {
@@ -62,6 +62,45 @@ describe('normalizeUser', () => {
       email: 'yan@example.com',
       descriptor: 'aad.yan',
       imageUrl: 'https://example.com/avatar.png'
+    })
+  })
+})
+
+
+describe('getRelationTargetIds', () => {
+  it('extracts relation work item ids from Azure DevOps relation urls', () => {
+    expect(getRelationTargetIds([
+      { rel: 'System.LinkTypes.Hierarchy-Forward', url: 'https://dev.azure.com/org/project/_apis/wit/workItems/384' },
+      { rel: 'System.LinkTypes.Related', url: 'https://dev.azure.com/org/project/_apis/wit/workItems/385' },
+      { rel: 'AttachedFile', url: 'https://dev.azure.com/org/project/_apis/wit/attachments/file' }
+    ])).toEqual([384, 385])
+  })
+})
+
+describe('groupWorkItemRelations', () => {
+  it('groups child and related work items for jira-like collapsible rendering', () => {
+    const grouped = groupWorkItemRelations(
+      {
+        id: 383,
+        type: 'Product Backlog Item',
+        title: 'Parent PBI',
+        state: 'Active',
+        tags: [],
+        webUrl: '',
+        relations: [
+          { rel: 'System.LinkTypes.Hierarchy-Forward', url: 'https://dev.azure.com/org/project/_apis/wit/workItems/384' },
+          { rel: 'System.LinkTypes.Related', url: 'https://dev.azure.com/org/project/_apis/wit/workItems/385' }
+        ]
+      },
+      [
+        { id: 384, type: 'Task', title: 'Child task', state: 'New', tags: [], webUrl: '' },
+        { id: 385, type: 'Bug', title: 'Related bug', state: 'Active', tags: [], webUrl: '' }
+      ]
+    )
+
+    expect(grouped).toEqual({
+      children: [{ id: 384, type: 'Task', title: 'Child task', state: 'New', tags: [], webUrl: '' }],
+      related: [{ id: 385, type: 'Bug', title: 'Related bug', state: 'Active', tags: [], webUrl: '' }]
     })
   })
 })
