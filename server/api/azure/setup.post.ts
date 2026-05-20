@@ -48,6 +48,7 @@ export default defineEventHandler(
         url: `https://dev.azure.com/${organization}`,
       },
       session.user || undefined,
+      { makeDefault: true },
     );
 
     return { organization, projects };

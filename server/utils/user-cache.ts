@@ -9,6 +9,7 @@ export type CachedUserDocument = {
   owner: CacheOwner;
   user: AzureAuthSessionUser;
   organizations: AzureOrganization[];
+  defaultOrganizationSlug?: string;
   token?: {
     expiresAt?: number;
     hasRefreshToken?: boolean;
@@ -77,8 +78,12 @@ async function getCollection(): Promise<Collection<CachedUserDocument>> {
 function mergeOrganizations(
   existing: AzureOrganization[],
   incoming: AzureOrganization[],
+  defaultOrganizationSlug?: string,
 ): AzureOrganization[] {
   const merged = new Map<string, AzureOrganization>();
+  const preservedDefaultSlug =
+    defaultOrganizationSlug ||
+    existing.find((organization) => organization.isDefault)?.slug;
 
   for (const organization of [...existing, ...incoming]) {
     const slug = String(organization.slug || "").trim();
@@ -89,11 +94,14 @@ function mergeOrganizations(
       name: organization.name || slug,
       slug,
       url: organization.url,
+      isDefault: slug === preservedDefaultSlug,
     });
   }
 
-  return Array.from(merged.values()).sort((first, second) =>
-    first.name.localeCompare(second.name),
+  return Array.from(merged.values()).sort(
+    (first, second) =>
+      Number(Boolean(second.isDefault)) - Number(Boolean(first.isDefault)) ||
+      first.name.localeCompare(second.name),
   );
 }
 
@@ -116,6 +124,7 @@ export async function upsertCachedUser(input: {
   owner: CacheOwner;
   user: AzureAuthSessionUser;
   organizations?: AzureOrganization[];
+  defaultOrganizationSlug?: string;
   token?: {
     expiresAt?: number;
     hasRefreshToken?: boolean;
@@ -129,7 +138,12 @@ export async function upsertCachedUser(input: {
   const organizations = mergeOrganizations(
     current?.organizations ?? [],
     input.organizations ?? [],
+    input.defaultOrganizationSlug || current?.defaultOrganizationSlug,
   );
+  const defaultOrganizationSlug =
+    input.defaultOrganizationSlug ||
+    current?.defaultOrganizationSlug ||
+    organizations.find((organization) => organization.isDefault)?.slug;
 
   await collection.updateOne(
     { userKey: input.owner.key },
@@ -146,6 +160,7 @@ export async function upsertCachedUser(input: {
           image: input.user.image || current?.user?.image,
         },
         organizations,
+        defaultOrganizationSlug,
         token: input.token || current?.token,
         lastLoginAt: input.lastLoginAt || current?.lastLoginAt,
         updatedAt: new Date(),
@@ -159,6 +174,7 @@ export async function rememberOrganization(
   owner: CacheOwner,
   organization: AzureOrganization,
   user?: AzureAuthSessionUser,
+  options?: { makeDefault?: boolean },
 ): Promise<void> {
   await upsertCachedUser({
     owner,
@@ -167,7 +183,22 @@ export async function rememberOrganization(
       email: owner.email,
     },
     organizations: [organization],
+    defaultOrganizationSlug:
+      options?.makeDefault ? organization.slug : undefined,
   });
+}
+
+export async function getDefaultOrganization(
+  userKey: string,
+): Promise<AzureOrganization | null> {
+  const cachedUser = await getCachedUser(userKey);
+  if (!cachedUser) return null;
+
+  return (
+    cachedUser.organizations.find((organization) => organization.isDefault) ||
+    cachedUser.organizations[0] ||
+    null
+  );
 }
 
 export async function purgeCachedUser(userKey: string): Promise<number> {

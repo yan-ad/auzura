@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import type { DropdownMenuItem, NavigationMenuItem } from "@nuxt/ui";
-import { buildProjectSectionPath, getProjectSectionFromPath, type ProjectSection } from "~/utils/navigation";
+import {
+  buildProjectSectionPath,
+  getProjectSectionFromPath,
+  type ProjectSection,
+} from "~/utils/navigation";
 import type {
   AzureOrganization,
   AzureProject,
@@ -27,8 +31,12 @@ const selectedProject = useCookie<string>("auzura:selected-project", {
 });
 const selectedItemId = ref<number | null>(null);
 const isDetailOpen = ref(false);
-const selectedTeam = useCookie<string>("auzura:selected-team", { default: () => "" });
-const selectedSprintPath = useCookie<string>("auzura:selected-sprint-path", { default: () => "" });
+const selectedTeam = useCookie<string>("auzura:selected-team", {
+  default: () => "",
+});
+const selectedSprintPath = useCookie<string>("auzura:selected-sprint-path", {
+  default: () => "",
+});
 const { loggedIn, user, fetch: refreshSession } = useUserSession();
 const filterModes = [
   { label: "Anyone", value: "anyone" },
@@ -65,7 +73,6 @@ function getRouteParam(value: unknown): string {
     : String(value || "").trim();
 }
 
-
 const routeOrganization = computed(() =>
   getRouteParam(route.params.organization),
 );
@@ -73,6 +80,7 @@ const routeProject = computed(() => getRouteParam(route.params.project));
 const activeSection = computed<SectionView>(() =>
   getProjectSectionFromPath(route.path),
 );
+const resolvingDefaultOrganization = ref(false);
 
 if (routeOrganization.value) {
   selectedOrganization.value = routeOrganization.value;
@@ -83,10 +91,38 @@ if (routeProject.value) {
 }
 
 watch(
-  activeOrganization,
-  async (organization) => {
-    if (organization || route.path === "/setup") return;
-    await router.replace("/setup");
+  [activeOrganization, loggedIn],
+  async ([organization, isLoggedIn]) => {
+    if (
+      organization ||
+      route.path === "/setup" ||
+      resolvingDefaultOrganization.value
+    )
+      return;
+
+    if (!isLoggedIn) {
+      await router.replace("/setup");
+      return;
+    }
+
+    resolvingDefaultOrganization.value = true;
+
+    try {
+      const response = await $fetch<{ organization: AzureOrganization | null }>(
+        "/api/azure/default-organization",
+      );
+
+      if (response.organization?.slug) {
+        selectedOrganization.value = response.organization.slug;
+        return;
+      }
+
+      await router.replace("/setup");
+    } catch {
+      await router.replace("/setup");
+    } finally {
+      resolvingDefaultOrganization.value = false;
+    }
   },
   { immediate: true },
 );
@@ -136,7 +172,9 @@ const organizationItems = computed(() => {
     merged.add(activeOrganization.value);
   }
 
-  return Array.from(merged).sort((first, second) => first.localeCompare(second));
+  return Array.from(merged).sort((first, second) =>
+    first.localeCompare(second),
+  );
 });
 const isAddOrganizationOpen = ref(false);
 const newOrganization = ref("");
@@ -157,13 +195,15 @@ const organizationProjectMenuItems = computed<DropdownMenuItem[][]>(() => [
       selectedProject.value = project;
     },
   })),
-  [{
-    label: "Add organization",
-    icon: "i-lucide-circle-plus",
-    onSelect: () => {
-      isAddOrganizationOpen.value = true;
+  [
+    {
+      label: "Add organization",
+      icon: "i-lucide-circle-plus",
+      onSelect: () => {
+        isAddOrganizationOpen.value = true;
+      },
     },
-  }],
+  ],
 ]);
 
 const usersUrl = computed(() => withOrganizationQuery("/api/azure/users?"));
@@ -215,7 +255,9 @@ const {
   watch: false,
 });
 const sprints = computed(() => sprintsData.value?.sprints ?? []);
-const sprintOptions = computed(() => sprints.value.map((sprint) => sprint.path));
+const sprintOptions = computed(() =>
+  sprints.value.map((sprint) => sprint.path),
+);
 const selectedSprint = computed(() =>
   sprints.value.find((sprint) => sprint.path === selectedSprintPath.value),
 );
@@ -243,8 +285,16 @@ function relationTargetId(relation: AzureWorkItemRelation): number | undefined {
   return Number.isFinite(id) ? id : undefined;
 }
 
-function relationItems(item: AzureWorkItem, relationType: string): AzureWorkItem[] {
-  const relatedById = new Map((item.relatedItems ?? []).map((relatedItem) => [relatedItem.id, relatedItem]));
+function relationItems(
+  item: AzureWorkItem,
+  relationType: string,
+): AzureWorkItem[] {
+  const relatedById = new Map(
+    (item.relatedItems ?? []).map((relatedItem) => [
+      relatedItem.id,
+      relatedItem,
+    ]),
+  );
 
   return (item.relations ?? [])
     .filter((relation) => relation.rel === relationType)
@@ -252,7 +302,9 @@ function relationItems(item: AzureWorkItem, relationType: string): AzureWorkItem
       const id = relationTargetId(relation);
       return id ? relatedById.get(id) : undefined;
     })
-    .filter((relatedItem): relatedItem is AzureWorkItem => Boolean(relatedItem));
+    .filter((relatedItem): relatedItem is AzureWorkItem =>
+      Boolean(relatedItem),
+    );
 }
 
 function childItems(item: AzureWorkItem): AzureWorkItem[] {
@@ -359,48 +411,70 @@ watch([activeProject, canLoadAzure], async ([project, canLoad]) => {
   await refreshTeams();
 });
 
-watch(teams, async (value) => {
-  if (!value.length) {
-    selectedTeam.value = "";
-    return;
-  }
+watch(
+  teams,
+  async (value) => {
+    if (!value.length) {
+      selectedTeam.value = "";
+      return;
+    }
 
-  if (!selectedTeam.value || !value.some((team) => team.name === selectedTeam.value)) {
-    selectedTeam.value = value[0]?.name || "";
-  }
+    if (
+      !selectedTeam.value ||
+      !value.some((team) => team.name === selectedTeam.value)
+    ) {
+      selectedTeam.value = value[0]?.name || "";
+    }
 
-  if (selectedTeam.value) {
+    if (selectedTeam.value) {
+      await refreshSprints();
+    }
+  },
+  { immediate: true },
+);
+
+watch(
+  [selectedTeam, activeProject, canLoadAzure],
+  async ([team, project, canLoad]) => {
+    if (!team || !project || !canLoad) return;
     await refreshSprints();
-  }
-}, { immediate: true });
+  },
+);
 
-watch([selectedTeam, activeProject, canLoadAzure], async ([team, project, canLoad]) => {
-  if (!team || !project || !canLoad) return;
-  await refreshSprints();
-});
+watch(
+  sprints,
+  async (value) => {
+    if (!value.length) {
+      selectedSprintPath.value = "";
+      sprintItemsData.value = undefined;
+      return;
+    }
 
-watch(sprints, async (value) => {
-  if (!value.length) {
-    selectedSprintPath.value = "";
-    sprintItemsData.value = undefined;
-    return;
-  }
+    const currentSprint = value.find(
+      (sprint) => sprint.timeFrame === "current",
+    );
+    const fallback = currentSprint?.path || value[0]?.path || "";
+    if (
+      !selectedSprintPath.value ||
+      !value.some((sprint) => sprint.path === selectedSprintPath.value)
+    ) {
+      selectedSprintPath.value = fallback;
+    }
 
-  const currentSprint = value.find((sprint) => sprint.timeFrame === "current");
-  const fallback = currentSprint?.path || value[0]?.path || "";
-  if (!selectedSprintPath.value || !value.some((sprint) => sprint.path === selectedSprintPath.value)) {
-    selectedSprintPath.value = fallback;
-  }
+    if (selectedSprintPath.value) {
+      await refreshSprintItems();
+    }
+  },
+  { immediate: true },
+);
 
-  if (selectedSprintPath.value) {
+watch(
+  [selectedSprintPath, activeProject, canLoadAzure],
+  async ([sprintPath, project, canLoad]) => {
+    if (!sprintPath || !project || !canLoad) return;
     await refreshSprintItems();
-  }
-}, { immediate: true });
-
-watch([selectedSprintPath, activeProject, canLoadAzure], async ([sprintPath, project, canLoad]) => {
-  if (!sprintPath || !project || !canLoad) return;
-  await refreshSprintItems();
-});
+  },
+);
 
 function withOrganizationQuery(path: string) {
   return `${path}${organizationQuery.value ? `&${organizationQuery.value}` : ""}`;
@@ -694,19 +768,21 @@ const viewNavigation = computed<NavigationMenuItem[][]>(() => [
   ],
 ]);
 
-const userMenuItems = computed<DropdownMenuItem[][]>(() => [[
-  {
-    label: loggedIn.value ? "Switch account" : "Sign in",
-    icon: "i-lucide-log-in",
-    onSelect: async () => await loginWithMicrosoft(),
-  },
-  {
-    label: "Sign out",
-    icon: "i-lucide-log-out",
-    disabled: !loggedIn.value,
-    onSelect: async () => await logoutFromMicrosoft(),
-  },
-]]);
+const userMenuItems = computed<DropdownMenuItem[][]>(() => [
+  [
+    {
+      label: loggedIn.value ? "Switch account" : "Sign in",
+      icon: "i-lucide-log-in",
+      onSelect: async () => await loginWithMicrosoft(),
+    },
+    {
+      label: "Sign out",
+      icon: "i-lucide-log-out",
+      disabled: !loggedIn.value,
+      onSelect: async () => await logoutFromMicrosoft(),
+    },
+  ],
+]);
 
 function formatDate(value?: string) {
   if (!value) return "—";
@@ -718,7 +794,8 @@ function formatDate(value?: string) {
 
 function formatSprintRange(sprint?: AzureSprint): string {
   if (!sprint) return "No sprint selected";
-  if (!sprint.startDate && !sprint.finishDate) return sprint.timeFrame || "No date range";
+  if (!sprint.startDate && !sprint.finishDate)
+    return sprint.timeFrame || "No date range";
   const start = sprint.startDate ? formatDate(sprint.startDate) : "N/A";
   const finish = sprint.finishDate ? formatDate(sprint.finishDate) : "N/A";
   return `${start} - ${finish}`;
@@ -851,13 +928,13 @@ async function addOrganization() {
   addingOrganization.value = true;
 
   try {
-    const response = await $fetch<{ organization: string; projects: AzureProject[] }>(
-      "/api/azure/setup",
-      {
-        method: "POST",
-        body: { organization },
-      },
-    );
+    const response = await $fetch<{
+      organization: string;
+      projects: AzureProject[];
+    }>("/api/azure/setup", {
+      method: "POST",
+      body: { organization },
+    });
 
     const projects = response.projects ?? [];
     if (!projects.length) {
@@ -879,7 +956,8 @@ async function addOrganization() {
       color: "success",
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to add organization";
+    const message =
+      error instanceof Error ? error.message : "Failed to add organization";
     toast.add({
       title: "Invalid organization",
       description: message,
@@ -893,691 +971,754 @@ async function addOrganization() {
 
 <template>
   <UDashboardPanel id="auzura-main">
-      <template #header>
-        <UDashboardNavbar
-          :title="activeProject || 'Azure Boards'"
-          :ui="{ right: 'gap-2' }"
-        >
-          <template #leading>
-            <UDashboardSidebarCollapse />
-          </template>
+    <template #header>
+      <UDashboardNavbar
+        :title="activeProject || 'Azure Boards'"
+        :ui="{ right: 'gap-2' }"
+      >
+        <template #leading>
+          <UDashboardSidebarCollapse />
+        </template>
 
-          <template #right>
-            <UBadge :color="loggedIn ? 'success' : 'warning'" variant="soft">
-              {{ loggedIn ? "Microsoft connected" : "Login required" }}
-            </UBadge>
+        <template #right>
+          <UBadge :color="loggedIn ? 'success' : 'warning'" variant="soft">
+            {{ loggedIn ? "Microsoft connected" : "Login required" }}
+          </UBadge>
+          <UButton
+            icon="i-lucide-refresh-cw"
+            color="neutral"
+            variant="ghost"
+            square
+            :loading="busy"
+            :disabled="!canLoadAzure || !activeProject"
+            @click="refreshCurrentView()"
+          />
+          <UColorModeButton color="neutral" variant="ghost" />
+        </template>
+      </UDashboardNavbar>
+
+      <UDashboardToolbar>
+        <template #left>
+          <UButtonGroup>
             <UButton
-              icon="i-lucide-refresh-cw"
-              color="neutral"
-              variant="ghost"
-              square
-              :loading="busy"
-              :disabled="!canLoadAzure || !activeProject"
-              @click="refreshCurrentView()"
-            />
-            <UColorModeButton color="neutral" variant="ghost" />
-          </template>
-        </UDashboardNavbar>
-
-        <UDashboardToolbar>
-          <template #left>
-            <UButtonGroup>
-              <UButton
-                :icon="
-                  activeSection === 'tasks' ?
-                    'i-lucide-list-filter'
-                  : 'i-lucide-chart-no-axes-column'
-                "
-                color="primary"
-                variant="subtle"
-              >
-                {{
-                  activeSection === "tasks" ? "All Task" :
-                  activeSection === "sprint-task" ? "Sprint Task" : "Dashboard Overview"
-                }}
-              </UButton>
-            </UButtonGroup>
-          </template>
-
-          <template #right>
-            <USelectMenu
-              v-model="selectedProject"
-              :items="projectOptions"
-              :loading="projectsPending"
-              class="w-56"
-              placeholder="Project"
-              searchable
-            />
-            <UButton
-              icon="i-lucide-plus"
-              :disabled="!activeProject"
-              @click="goToSection('tasks')"
-            >
-              New work item
-            </UButton>
-          </template>
-        </UDashboardToolbar>
-      </template>
-
-      <template #body>
-        <div class="space-y-6">
-          <UAlert
-            v-if="!loggedIn"
-            color="warning"
-            variant="soft"
-            icon="i-lucide-circle-alert"
-            title="Microsoft sign-in required"
-            description="Auzura uses Microsoft OAuth before loading Azure DevOps content."
-          />
-
-          <UAlert
-            v-if="projectsError"
-            color="error"
-            variant="soft"
-            icon="i-lucide-triangle-alert"
-            title="Project list failed"
-            :description="projectsError.message"
-          />
-
-          <UAlert
-            v-if="boardError"
-            color="error"
-            variant="soft"
-            icon="i-lucide-triangle-alert"
-            title="Azure DevOps request failed"
-            :description="boardError.message"
-          />
-
-          <UAlert
-            v-if="usersError"
-            color="warning"
-            variant="soft"
-            icon="i-lucide-users-round"
-            title="User list failed"
-            :description="`${usersError.message}. Filter member masih bisa diketik manual.`"
-          />
-
-          <UPageGrid v-if="activeSection === 'report'" class="gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <UPageCard
-              v-for="stat in dashboardStats"
-              :key="stat.title"
-              :icon="stat.icon"
-              :title="stat.title"
+              :icon="
+                activeSection === 'tasks' ?
+                  'i-lucide-list-filter'
+                : 'i-lucide-chart-no-axes-column'
+              "
+              color="primary"
               variant="subtle"
-              :ui="{
-                container: 'gap-y-1',
-                wrapper: 'items-start',
-                leading:
-                  'p-2 rounded-full bg-primary/10 ring ring-inset ring-primary/25',
-                title: 'font-normal text-muted text-xs uppercase',
-              }"
-              class="min-h-0"
             >
-              <div class="flex items-center gap-2">
-                <span class="truncate text-xl font-semibold text-highlighted">
-                  {{ stat.value }}
-                </span>
-                <UBadge :color="stat.tone" variant="subtle" class="text-xs">
-                  live
-                </UBadge>
-              </div>
-            </UPageCard>
-          </UPageGrid>
+              {{
+                activeSection === "tasks" ? "All Task"
+                : activeSection === "sprint-task" ? "Sprint Task"
+                : "Dashboard Overview"
+              }}
+            </UButton>
+          </UButtonGroup>
+        </template>
 
-          <UCard v-if="activeSection === 'report'" variant="subtle">
-            <template #header>
+        <template #right>
+          <USelectMenu
+            v-model="selectedProject"
+            :items="projectOptions"
+            :loading="projectsPending"
+            class="w-56"
+            placeholder="Project"
+            searchable
+          />
+          <UButton
+            icon="i-lucide-plus"
+            :disabled="!activeProject"
+            @click="goToSection('tasks')"
+          >
+            New work item
+          </UButton>
+        </template>
+      </UDashboardToolbar>
+    </template>
+
+    <template #body>
+      <div class="space-y-6">
+        <UAlert
+          v-if="!loggedIn"
+          color="warning"
+          variant="soft"
+          icon="i-lucide-circle-alert"
+          title="Microsoft sign-in required"
+          description="Auzura uses Microsoft OAuth before loading Azure DevOps content."
+        />
+
+        <UAlert
+          v-if="projectsError"
+          color="error"
+          variant="soft"
+          icon="i-lucide-triangle-alert"
+          title="Project list failed"
+          :description="projectsError.message"
+        />
+
+        <UAlert
+          v-if="boardError"
+          color="error"
+          variant="soft"
+          icon="i-lucide-triangle-alert"
+          title="Azure DevOps request failed"
+          :description="boardError.message"
+        />
+
+        <UAlert
+          v-if="usersError"
+          color="warning"
+          variant="soft"
+          icon="i-lucide-users-round"
+          title="User list failed"
+          :description="`${usersError.message}. Filter member masih bisa diketik manual.`"
+        />
+
+        <UPageGrid
+          v-if="activeSection === 'report'"
+          class="gap-3 sm:grid-cols-2 lg:grid-cols-4"
+        >
+          <UPageCard
+            v-for="stat in dashboardStats"
+            :key="stat.title"
+            :icon="stat.icon"
+            :title="stat.title"
+            variant="subtle"
+            :ui="{
+              container: 'gap-y-1',
+              wrapper: 'items-start',
+              leading:
+                'p-2 rounded-full bg-primary/10 ring ring-inset ring-primary/25',
+              title: 'font-normal text-muted text-xs uppercase',
+            }"
+            class="min-h-0"
+          >
+            <div class="flex items-center gap-2">
+              <span class="truncate text-xl font-semibold text-highlighted">
+                {{ stat.value }}
+              </span>
+              <UBadge :color="stat.tone" variant="subtle" class="text-xs">
+                live
+              </UBadge>
+            </div>
+          </UPageCard>
+        </UPageGrid>
+
+        <UCard v-if="activeSection === 'report'" variant="subtle">
+          <template #header>
+            <div
+              class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <div>
+                <h2 class="text-lg font-semibold text-highlighted">
+                  Dashboard graphics
+                </h2>
+                <p class="text-sm text-muted">
+                  MongoDB Atlas cache{{
+                    dashboardMetrics?.lastSyncedAt ?
+                      ` · synced ${formatDate(dashboardMetrics.lastSyncedAt)}`
+                    : " · refresh All Task dulu buat seed data"
+                  }}
+                </p>
+              </div>
+              <UBadge color="neutral" variant="soft">MongoDB Atlas</UBadge>
+            </div>
+          </template>
+
+          <div class="grid gap-4 lg:grid-cols-2">
+            <div
+              v-for="section in chartSections"
+              :key="section.title"
+              class="rounded-xl border border-default bg-default/40 p-4"
+            >
+              <div class="mb-4 flex items-center gap-2">
+                <UIcon :name="section.icon" class="size-4 text-primary" />
+                <h3 class="text-sm font-semibold text-highlighted">
+                  {{ section.title }}
+                </h3>
+              </div>
+
+              <div v-if="section.items.length" class="space-y-3">
+                <div
+                  v-for="item in section.items"
+                  :key="item.label"
+                  class="space-y-1.5"
+                >
+                  <div class="flex items-center justify-between gap-3 text-sm">
+                    <span class="truncate text-toned">{{ item.label }}</span>
+                    <span class="font-medium text-highlighted">{{
+                      item.count
+                    }}</span>
+                  </div>
+                  <div class="h-2 overflow-hidden rounded-full bg-elevated">
+                    <div
+                      class="h-full rounded-full bg-primary transition-all"
+                      :style="{ width: `${Math.max(item.percent, 4)}%` }"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <p
+                v-else
+                class="rounded-lg border border-dashed border-default p-6 text-center text-sm text-muted"
+              >
+                Belum ada cache. Refresh All Task dulu buat populate MongoDB
+                Atlas.
+              </p>
+            </div>
+          </div>
+        </UCard>
+
+        <UCard v-if="activeSection === 'tasks'" variant="subtle">
+          <template #header>
+            <div class="space-y-4">
               <div
-                class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"
+                class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"
               >
                 <div>
                   <h2 class="text-lg font-semibold text-highlighted">
-                    Dashboard graphics
+                    All Task
                   </h2>
                   <p class="text-sm text-muted">
-                    MongoDB Atlas cache{{
-                      dashboardMetrics?.lastSyncedAt ?
-                        ` · synced ${formatDate(dashboardMetrics.lastSyncedAt)}`
-                      : " · refresh All Task dulu buat seed data"
-                    }}
-                  </p>
-                </div>
-                <UBadge color="neutral" variant="soft">MongoDB Atlas</UBadge>
-              </div>
-            </template>
-
-            <div class="grid gap-4 lg:grid-cols-2">
-              <div
-                v-for="section in chartSections"
-                :key="section.title"
-                class="rounded-xl border border-default bg-default/40 p-4"
-              >
-                <div class="mb-4 flex items-center gap-2">
-                  <UIcon :name="section.icon" class="size-4 text-primary" />
-                  <h3 class="text-sm font-semibold text-highlighted">
-                    {{ section.title }}
-                  </h3>
-                </div>
-
-                <div v-if="section.items.length" class="space-y-3">
-                  <div
-                    v-for="item in section.items"
-                    :key="item.label"
-                    class="space-y-1.5"
-                  >
-                    <div
-                      class="flex items-center justify-between gap-3 text-sm"
-                    >
-                      <span class="truncate text-toned">{{ item.label }}</span>
-                      <span class="font-medium text-highlighted">{{
-                        item.count
-                      }}</span>
-                    </div>
-                    <div class="h-2 overflow-hidden rounded-full bg-elevated">
-                      <div
-                        class="h-full rounded-full bg-primary transition-all"
-                        :style="{ width: `${Math.max(item.percent, 4)}%` }"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <p
-                  v-else
-                  class="rounded-lg border border-dashed border-default p-6 text-center text-sm text-muted"
-                >
-                  Belum ada cache. Refresh All Task dulu buat populate MongoDB
-                  Atlas.
-                </p>
-              </div>
-            </div>
-          </UCard>
-
-          <UCard v-if="activeSection === 'tasks'" variant="subtle">
-            <template #header>
-              <div class="space-y-4">
-                <div
-                  class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"
-                >
-                  <div>
-                    <h2 class="text-lg font-semibold text-highlighted">
-                      All Task
-                    </h2>
-                    <p class="text-sm text-muted">
-                      {{ listTotal }} item match in
-                      {{ activeProject || "selected project" }}
-                    </p>
-                  </div>
-                  <UButton
-                    icon="i-lucide-refresh-cw"
-                    :loading="boardPending"
-                    color="neutral"
-                    variant="subtle"
-                    @click="refreshBoard()"
-                  >
-                    Refresh list
-                  </UButton>
-                </div>
-
-                <div class="grid gap-3 lg:grid-cols-12">
-                  <UFormField label="Search Issues" class="lg:col-span-4">
-                    <UInput
-                      v-model="searchKeyword"
-                      icon="i-lucide-search"
-                      placeholder="Search by key, title, assignee"
-                    />
-                  </UFormField>
-
-                  <UFormField label="Show" class="lg:col-span-2">
-                    <USelect
-                      v-model="itemsPerPage"
-                      :items="itemsPerPageOptions"
-                    />
-                  </UFormField>
-
-                  <UFormField label="Assignee" class="lg:col-span-3">
-                    <div class="flex gap-2">
-                      <USelect
-                        v-model="assignedFilterMode"
-                        :items="filterModes"
-                        class="w-32"
-                      />
-                      <UInputMenu
-                        v-model="assignedMembers"
-                        icon="i-lucide-user"
-                        :items="userOptions"
-                        :loading="usersPending"
-                        placeholder="choose members"
-                        :disabled="assignedFilterMode !== 'members'"
-                        multiple
-                        create-item
-                      />
-                    </div>
-                  </UFormField>
-
-                  <UFormField label="Reporter" class="lg:col-span-3">
-                    <div class="flex gap-2">
-                      <USelect
-                        v-model="createdFilterMode"
-                        :items="filterModes"
-                        class="w-32"
-                      />
-                      <UInputMenu
-                        v-model="createdMembers"
-                        icon="i-lucide-user-pen"
-                        :items="userOptions"
-                        :loading="usersPending"
-                        placeholder="choose members"
-                        :disabled="createdFilterMode !== 'members'"
-                        multiple
-                        create-item
-                      />
-                    </div>
-                  </UFormField>
-                </div>
-              </div>
-            </template>
-
-            <div class="overflow-hidden rounded-lg border border-default">
-              <div
-                class="grid grid-cols-[112px_minmax(300px,1fr)_140px_170px_170px_150px_88px] items-center gap-2 border-b border-default bg-elevated/40 px-3 py-2 text-[11px] font-medium uppercase text-muted"
-              >
-                <span>Issue Key</span>
-                <span>Summary</span>
-                <span>Type</span>
-                <span>Assignee</span>
-                <span>Reporter</span>
-                <span>Updated</span>
-                <span class="text-right">Open</span>
-              </div>
-
-              <div v-if="boardPending" class="space-y-2 p-3">
-                <USkeleton v-for="index in 6" :key="index" class="h-12" />
-              </div>
-
-              <div v-else class="divide-y divide-default">
-                <div
-                  v-for="item in boardItems"
-                  :key="item.id"
-                  class="grid grid-cols-[112px_minmax(300px,1fr)_140px_170px_170px_150px_88px] items-center gap-2 px-3 py-2 hover:bg-elevated/40"
-                >
-                  <button
-                    class="truncate text-left text-xs font-medium text-primary hover:underline"
-                    @click="openDetail(item)"
-                  >
-                    AZ-{{ item.id }}
-                  </button>
-
-                  <div class="min-w-0">
-                    <button
-                      class="w-full truncate text-left text-sm font-medium text-highlighted hover:text-primary"
-                      @click="openDetail(item)"
-                    >
-                      {{ item.title }}
-                    </button>
-                    <p class="truncate text-xs text-muted">
-                      {{ item.areaPath || item.iterationPath || "No area / iteration" }}
-                    </p>
-                  </div>
-
-                  <UBadge color="neutral" variant="soft" class="w-fit">
-                    {{ item.type }}
-                  </UBadge>
-
-                  <p class="truncate text-sm text-toned">
-                    {{ item.assignedTo || "Unassigned" }}
-                  </p>
-
-                  <p class="truncate text-sm text-toned">
-                    {{ item.createdBy || "—" }}
-                  </p>
-
-                  <div class="space-y-1">
-                    <p class="text-xs text-muted">{{ formatDate(item.changedDate) }}</p>
-                    <USelectMenu
-                      :model-value="item.state"
-                      :items="states"
-                      size="xs"
-                      @update:model-value="moveItem(item, String($event))"
-                    />
-                  </div>
-
-                  <div class="flex justify-end">
-                    <UButton
-                      icon="i-lucide-panel-right-open"
-                      color="neutral"
-                      variant="ghost"
-                      size="xs"
-                      square
-                      @click="openDetail(item)"
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div
-              class="mt-4 flex flex-col gap-3 border-t border-default pt-4 sm:flex-row sm:items-center sm:justify-between"
-            >
-              <p class="text-sm text-muted">
-                Page {{ listPage }} of {{ listPageCount }} ·
-                {{ listTotal }} total
-              </p>
-              <div class="flex gap-2">
-                <UButton
-                  icon="i-lucide-chevron-left"
-                  color="neutral"
-                  variant="subtle"
-                  :disabled="!canGoPrevious || boardPending"
-                  @click="previousPage()"
-                >
-                  Previous
-                </UButton>
-                <UButton
-                  trailing-icon="i-lucide-chevron-right"
-                  color="neutral"
-                  variant="subtle"
-                  :disabled="!canGoNext || boardPending"
-                  @click="nextPage()"
-                >
-                  Next
-                </UButton>
-              </div>
-            </div>
-
-            <p
-              v-if="!boardPending && activeProject && !boardItems.length"
-              class="mt-4 rounded-lg border border-dashed border-default p-8 text-center text-sm text-muted"
-            >
-              No work items match this filter.
-            </p>
-          </UCard>
-
-          <UCard v-if="activeSection === 'sprint-task'" variant="subtle">
-            <template #header>
-              <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <h2 class="text-lg font-semibold text-highlighted">Sprint Task</h2>
-                  <p class="text-sm text-muted">
-                    {{ selectedSprint?.name || "No sprint selected" }} · {{ sprintItems.length }} PBI / story
+                    {{ listTotal }} item match in
+                    {{ activeProject || "selected project" }}
                   </p>
                 </div>
                 <UButton
                   icon="i-lucide-refresh-cw"
-                  :loading="sprintItemsPending"
+                  :loading="boardPending"
                   color="neutral"
                   variant="subtle"
-                  :disabled="!selectedSprintPath"
-                  @click="refreshSprintItems()"
+                  @click="refreshBoard()"
                 >
-                  Refresh sprint
+                  Refresh list
                 </UButton>
+              </div>
+
+              <div class="grid gap-3 lg:grid-cols-12">
+                <UFormField label="Search Issues" class="lg:col-span-4">
+                  <UInput
+                    v-model="searchKeyword"
+                    icon="i-lucide-search"
+                    placeholder="Search by key, title, assignee"
+                  />
+                </UFormField>
+
+                <UFormField label="Show" class="lg:col-span-2">
+                  <USelect
+                    v-model="itemsPerPage"
+                    :items="itemsPerPageOptions"
+                  />
+                </UFormField>
+
+                <UFormField label="Assignee" class="lg:col-span-3">
+                  <div class="flex gap-2">
+                    <USelect
+                      v-model="assignedFilterMode"
+                      :items="filterModes"
+                      class="w-32"
+                    />
+                    <UInputMenu
+                      v-model="assignedMembers"
+                      icon="i-lucide-user"
+                      :items="userOptions"
+                      :loading="usersPending"
+                      placeholder="choose members"
+                      :disabled="assignedFilterMode !== 'members'"
+                      multiple
+                      create-item
+                    />
+                  </div>
+                </UFormField>
+
+                <UFormField label="Reporter" class="lg:col-span-3">
+                  <div class="flex gap-2">
+                    <USelect
+                      v-model="createdFilterMode"
+                      :items="filterModes"
+                      class="w-32"
+                    />
+                    <UInputMenu
+                      v-model="createdMembers"
+                      icon="i-lucide-user-pen"
+                      :items="userOptions"
+                      :loading="usersPending"
+                      placeholder="choose members"
+                      :disabled="createdFilterMode !== 'members'"
+                      multiple
+                      create-item
+                    />
+                  </div>
+                </UFormField>
+              </div>
+            </div>
+          </template>
+
+          <div class="overflow-hidden rounded-lg border border-default">
+            <div
+              class="grid grid-cols-[112px_minmax(300px,1fr)_140px_170px_170px_150px_88px] items-center gap-2 border-b border-default bg-elevated/40 px-3 py-2 text-[11px] font-medium uppercase text-muted"
+            >
+              <span>Issue Key</span>
+              <span>Summary</span>
+              <span>Type</span>
+              <span>Assignee</span>
+              <span>Reporter</span>
+              <span>Updated</span>
+              <span class="text-right">Open</span>
+            </div>
+
+            <div v-if="boardPending" class="space-y-2 p-3">
+              <USkeleton v-for="index in 6" :key="index" class="h-12" />
+            </div>
+
+            <div v-else class="divide-y divide-default">
+              <div
+                v-for="item in boardItems"
+                :key="item.id"
+                class="grid grid-cols-[112px_minmax(300px,1fr)_140px_170px_170px_150px_88px] items-center gap-2 px-3 py-2 hover:bg-elevated/40"
+              >
+                <button
+                  class="truncate text-left text-xs font-medium text-primary hover:underline"
+                  @click="openDetail(item)"
+                >
+                  AZ-{{ item.id }}
+                </button>
+
+                <div class="min-w-0">
+                  <button
+                    class="w-full truncate text-left text-sm font-medium text-highlighted hover:text-primary"
+                    @click="openDetail(item)"
+                  >
+                    {{ item.title }}
+                  </button>
+                  <p class="truncate text-xs text-muted">
+                    {{
+                      item.areaPath ||
+                      item.iterationPath ||
+                      "No area / iteration"
+                    }}
+                  </p>
+                </div>
+
+                <UBadge color="neutral" variant="soft" class="w-fit">
+                  {{ item.type }}
+                </UBadge>
+
+                <p class="truncate text-sm text-toned">
+                  {{ item.assignedTo || "Unassigned" }}
+                </p>
+
+                <p class="truncate text-sm text-toned">
+                  {{ item.createdBy || "—" }}
+                </p>
+
+                <div class="space-y-1">
+                  <p class="text-xs text-muted">
+                    {{ formatDate(item.changedDate) }}
+                  </p>
+                  <USelectMenu
+                    :model-value="item.state"
+                    :items="states"
+                    size="xs"
+                    @update:model-value="moveItem(item, String($event))"
+                  />
+                </div>
+
+                <div class="flex justify-end">
+                  <UButton
+                    icon="i-lucide-panel-right-open"
+                    color="neutral"
+                    variant="ghost"
+                    size="xs"
+                    square
+                    @click="openDetail(item)"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div
+            class="mt-4 flex flex-col gap-3 border-t border-default pt-4 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <p class="text-sm text-muted">
+              Page {{ listPage }} of {{ listPageCount }} · {{ listTotal }} total
+            </p>
+            <div class="flex gap-2">
+              <UButton
+                icon="i-lucide-chevron-left"
+                color="neutral"
+                variant="subtle"
+                :disabled="!canGoPrevious || boardPending"
+                @click="previousPage()"
+              >
+                Previous
+              </UButton>
+              <UButton
+                trailing-icon="i-lucide-chevron-right"
+                color="neutral"
+                variant="subtle"
+                :disabled="!canGoNext || boardPending"
+                @click="nextPage()"
+              >
+                Next
+              </UButton>
+            </div>
+          </div>
+
+          <p
+            v-if="!boardPending && activeProject && !boardItems.length"
+            class="mt-4 rounded-lg border border-dashed border-default p-8 text-center text-sm text-muted"
+          >
+            No work items match this filter.
+          </p>
+        </UCard>
+
+        <UCard v-if="activeSection === 'sprint-task'" variant="subtle">
+          <template #header>
+            <div
+              class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"
+            >
+              <div>
+                <h2 class="text-lg font-semibold text-highlighted">
+                  Sprint Task
+                </h2>
+                <p class="text-sm text-muted">
+                  {{ selectedSprint?.name || "No sprint selected" }} ·
+                  {{ sprintItems.length }} PBI / story
+                </p>
+              </div>
+              <UButton
+                icon="i-lucide-refresh-cw"
+                :loading="sprintItemsPending"
+                color="neutral"
+                variant="subtle"
+                :disabled="!selectedSprintPath"
+                @click="refreshSprintItems()"
+              >
+                Refresh sprint
+              </UButton>
+            </div>
+          </template>
+
+          <div v-if="sprintItemsPending" class="space-y-3">
+            <USkeleton v-for="index in 4" :key="index" class="h-24" />
+          </div>
+
+          <div v-else-if="sprintItems.length" class="space-y-3">
+            <UCollapsible
+              v-for="item in sprintItems"
+              :key="item.id"
+              :default-open="false"
+              class="rounded-xl border border-default bg-default/50"
+            >
+              <template #default="{ open }">
+                <button
+                  class="flex w-full items-start justify-between gap-4 p-4 text-left hover:bg-elevated/40"
+                >
+                  <div class="min-w-0 space-y-2">
+                    <div class="flex flex-wrap items-center gap-2">
+                      <UBadge color="primary" variant="soft"
+                        >AZ-{{ item.id }}</UBadge
+                      >
+                      <UBadge color="neutral" variant="soft">{{
+                        item.type
+                      }}</UBadge>
+                      <UBadge :color="stateColor(item.state)" variant="soft">{{
+                        item.state
+                      }}</UBadge>
+                      <UBadge
+                        v-if="totalRelations(item)"
+                        color="neutral"
+                        variant="outline"
+                      >
+                        {{ totalRelations(item) }} linked
+                      </UBadge>
+                    </div>
+                    <p class="truncate text-sm font-semibold text-highlighted">
+                      {{ item.title }}
+                    </p>
+                    <p class="truncate text-xs text-muted">
+                      {{ item.assignedTo || "Unassigned" }} ·
+                      {{ item.iterationPath || "No iteration" }}
+                    </p>
+                  </div>
+                  <UIcon
+                    :name="
+                      open ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'
+                    "
+                    class="mt-1 size-4 text-muted"
+                  />
+                </button>
+              </template>
+
+              <template #content>
+                <div class="space-y-4 border-t border-default p-4">
+                  <div>
+                    <h3 class="mb-2 text-xs font-semibold uppercase text-muted">
+                      Child tasks
+                    </h3>
+                    <div v-if="childItems(item).length" class="space-y-2">
+                      <div
+                        v-for="child in childItems(item)"
+                        :key="child.id"
+                        class="flex items-center justify-between gap-3 rounded-lg border border-default bg-elevated/30 px-3 py-2"
+                      >
+                        <button
+                          class="min-w-0 truncate text-left text-sm text-highlighted hover:text-primary"
+                          @click="openDetail(child)"
+                        >
+                          AZ-{{ child.id }} · {{ child.title }}
+                        </button>
+                        <div class="flex shrink-0 items-center gap-2">
+                          <UBadge color="neutral" variant="soft">{{
+                            child.type
+                          }}</UBadge>
+                          <UBadge
+                            :color="stateColor(child.state)"
+                            variant="soft"
+                            >{{ child.state }}</UBadge
+                          >
+                        </div>
+                      </div>
+                    </div>
+                    <p
+                      v-else
+                      class="rounded-lg border border-dashed border-default p-3 text-sm text-muted"
+                    >
+                      No child task linked.
+                    </p>
+                  </div>
+
+                  <div>
+                    <h3 class="mb-2 text-xs font-semibold uppercase text-muted">
+                      Related issues
+                    </h3>
+                    <div v-if="relatedItems(item).length" class="space-y-2">
+                      <div
+                        v-for="related in relatedItems(item)"
+                        :key="related.id"
+                        class="flex items-center justify-between gap-3 rounded-lg border border-default bg-elevated/30 px-3 py-2"
+                      >
+                        <button
+                          class="min-w-0 truncate text-left text-sm text-highlighted hover:text-primary"
+                          @click="openDetail(related)"
+                        >
+                          AZ-{{ related.id }} · {{ related.title }}
+                        </button>
+                        <div class="flex shrink-0 items-center gap-2">
+                          <UBadge color="neutral" variant="soft">{{
+                            related.type
+                          }}</UBadge>
+                          <UBadge
+                            :color="stateColor(related.state)"
+                            variant="soft"
+                            >{{ related.state }}</UBadge
+                          >
+                        </div>
+                      </div>
+                    </div>
+                    <p
+                      v-else
+                      class="rounded-lg border border-dashed border-default p-3 text-sm text-muted"
+                    >
+                      No related issue linked.
+                    </p>
+                  </div>
+                </div>
+              </template>
+            </UCollapsible>
+          </div>
+
+          <p
+            v-else
+            class="rounded-lg border border-dashed border-default p-8 text-center text-sm text-muted"
+          >
+            No PBI/story in this sprint yet.
+          </p>
+        </UCard>
+
+        <template v-if="activeSection !== 'sprint-task'">
+          <UCard variant="subtle">
+            <template #header>
+              <div>
+                <h2 class="text-lg font-semibold text-highlighted">
+                  Quick create
+                </h2>
+                <p class="text-sm text-muted">
+                  Creates inside
+                  <span class="font-medium text-highlighted">{{
+                    activeProject || "selected project"
+                  }}</span>
+                  using your Microsoft OAuth session.
+                </p>
               </div>
             </template>
 
-            <div v-if="sprintItemsPending" class="space-y-3">
-              <USkeleton v-for="index in 4" :key="index" class="h-24" />
-            </div>
+            <form
+              class="grid gap-4 lg:grid-cols-12"
+              @submit.prevent="createItem"
+            >
+              <UFormField label="Title" class="lg:col-span-4">
+                <UInput
+                  v-model="form.title"
+                  icon="i-lucide-pencil"
+                  placeholder="Fix flaky release checklist"
+                  :disabled="!activeProject"
+                />
+              </UFormField>
 
-            <div v-else-if="sprintItems.length" class="space-y-3">
-              <UCollapsible
-                v-for="item in sprintItems"
-                :key="item.id"
-                :default-open="false"
-                class="rounded-xl border border-default bg-default/50"
-              >
-                <template #default="{ open }">
-                  <button class="flex w-full items-start justify-between gap-4 p-4 text-left hover:bg-elevated/40">
-                    <div class="min-w-0 space-y-2">
-                      <div class="flex flex-wrap items-center gap-2">
-                        <UBadge color="primary" variant="soft">AZ-{{ item.id }}</UBadge>
-                        <UBadge color="neutral" variant="soft">{{ item.type }}</UBadge>
-                        <UBadge :color="stateColor(item.state)" variant="soft">{{ item.state }}</UBadge>
-                        <UBadge v-if="totalRelations(item)" color="neutral" variant="outline">
-                          {{ totalRelations(item) }} linked
-                        </UBadge>
-                      </div>
-                      <p class="truncate text-sm font-semibold text-highlighted">{{ item.title }}</p>
-                      <p class="truncate text-xs text-muted">
-                        {{ item.assignedTo || "Unassigned" }} · {{ item.iterationPath || "No iteration" }}
-                      </p>
-                    </div>
-                    <UIcon :name="open ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'" class="mt-1 size-4 text-muted" />
-                  </button>
-                </template>
+              <UFormField label="Type" class="lg:col-span-2">
+                <USelect
+                  v-model="form.type"
+                  :items="workItemTypes"
+                  :disabled="!activeProject"
+                />
+              </UFormField>
 
-                <template #content>
-                  <div class="space-y-4 border-t border-default p-4">
-                    <div>
-                      <h3 class="mb-2 text-xs font-semibold uppercase text-muted">Child tasks</h3>
-                      <div v-if="childItems(item).length" class="space-y-2">
-                        <div
-                          v-for="child in childItems(item)"
-                          :key="child.id"
-                          class="flex items-center justify-between gap-3 rounded-lg border border-default bg-elevated/30 px-3 py-2"
-                        >
-                          <button class="min-w-0 truncate text-left text-sm text-highlighted hover:text-primary" @click="openDetail(child)">
-                            AZ-{{ child.id }} · {{ child.title }}
-                          </button>
-                          <div class="flex shrink-0 items-center gap-2">
-                            <UBadge color="neutral" variant="soft">{{ child.type }}</UBadge>
-                            <UBadge :color="stateColor(child.state)" variant="soft">{{ child.state }}</UBadge>
-                          </div>
-                        </div>
-                      </div>
-                      <p v-else class="rounded-lg border border-dashed border-default p-3 text-sm text-muted">
-                        No child task linked.
-                      </p>
-                    </div>
+              <UFormField label="Assigned to" class="lg:col-span-3">
+                <UInput
+                  v-model="form.assignedTo"
+                  icon="i-lucide-user"
+                  placeholder="name@company.com"
+                  :disabled="!activeProject"
+                />
+              </UFormField>
 
-                    <div>
-                      <h3 class="mb-2 text-xs font-semibold uppercase text-muted">Related issues</h3>
-                      <div v-if="relatedItems(item).length" class="space-y-2">
-                        <div
-                          v-for="related in relatedItems(item)"
-                          :key="related.id"
-                          class="flex items-center justify-between gap-3 rounded-lg border border-default bg-elevated/30 px-3 py-2"
-                        >
-                          <button class="min-w-0 truncate text-left text-sm text-highlighted hover:text-primary" @click="openDetail(related)">
-                            AZ-{{ related.id }} · {{ related.title }}
-                          </button>
-                          <div class="flex shrink-0 items-center gap-2">
-                            <UBadge color="neutral" variant="soft">{{ related.type }}</UBadge>
-                            <UBadge :color="stateColor(related.state)" variant="soft">{{ related.state }}</UBadge>
-                          </div>
-                        </div>
-                      </div>
-                      <p v-else class="rounded-lg border border-dashed border-default p-3 text-sm text-muted">
-                        No related issue linked.
-                      </p>
-                    </div>
-                  </div>
-                </template>
-              </UCollapsible>
-            </div>
+              <UFormField label="Tags" class="lg:col-span-3">
+                <UInput
+                  v-model="form.tags"
+                  icon="i-lucide-tags"
+                  placeholder="auzura, dx"
+                  :disabled="!activeProject"
+                />
+              </UFormField>
 
-            <p v-else class="rounded-lg border border-dashed border-default p-8 text-center text-sm text-muted">
-              No PBI/story in this sprint yet.
-            </p>
+              <UFormField label="Description" class="lg:col-span-10">
+                <UTextarea
+                  v-model="form.description"
+                  autoresize
+                  placeholder="What should happen?"
+                  :disabled="!activeProject"
+                />
+              </UFormField>
+
+              <div class="flex items-end lg:col-span-2">
+                <UButton
+                  type="submit"
+                  block
+                  icon="i-lucide-plus"
+                  :disabled="!activeProject"
+                  >Create</UButton
+                >
+              </div>
+            </form>
           </UCard>
-
-          <template v-if="activeSection !== 'sprint-task'">
-            <UCard variant="subtle">
-              <template #header>
-                <div>
-                  <h2 class="text-lg font-semibold text-highlighted">
-                    Quick create
-                  </h2>
-                  <p class="text-sm text-muted">
-                    Creates inside
-                    <span class="font-medium text-highlighted">{{
-                      activeProject || "selected project"
-                    }}</span>
-                    using your Microsoft OAuth session.
-                  </p>
-                </div>
-              </template>
-
-              <form
-                class="grid gap-4 lg:grid-cols-12"
-                @submit.prevent="createItem"
-              >
-                <UFormField label="Title" class="lg:col-span-4">
-                  <UInput
-                    v-model="form.title"
-                    icon="i-lucide-pencil"
-                    placeholder="Fix flaky release checklist"
-                    :disabled="!activeProject"
-                  />
-                </UFormField>
-
-                <UFormField label="Type" class="lg:col-span-2">
-                  <USelect
-                    v-model="form.type"
-                    :items="workItemTypes"
-                    :disabled="!activeProject"
-                  />
-                </UFormField>
-
-                <UFormField label="Assigned to" class="lg:col-span-3">
-                  <UInput
-                    v-model="form.assignedTo"
-                    icon="i-lucide-user"
-                    placeholder="name@company.com"
-                    :disabled="!activeProject"
-                  />
-                </UFormField>
-
-                <UFormField label="Tags" class="lg:col-span-3">
-                  <UInput
-                    v-model="form.tags"
-                    icon="i-lucide-tags"
-                    placeholder="auzura, dx"
-                    :disabled="!activeProject"
-                  />
-                </UFormField>
-
-                <UFormField label="Description" class="lg:col-span-10">
-                  <UTextarea
-                    v-model="form.description"
-                    autoresize
-                    placeholder="What should happen?"
-                    :disabled="!activeProject"
-                  />
-                </UFormField>
-
-                <div class="flex items-end lg:col-span-2">
-                  <UButton
-                    type="submit"
-                    block
-                    icon="i-lucide-plus"
-                    :disabled="!activeProject"
-                    >Create</UButton
-                  >
-                </div>
-              </form>
-            </UCard>
-          </template>
-        </div>
-      </template>
+        </template>
+      </div>
+    </template>
   </UDashboardPanel>
 
-    <UModal
-      v-model:open="isDetailOpen"
-      :title="
-        selectedItem ?
-          `#${selectedItem.id} ${selectedItem.title}`
-        : 'Work item detail'
-      "
-      :description="activeProject"
-    >
-      <template #body>
-        <div v-if="detailPending" class="space-y-4">
-          <USkeleton class="h-8" />
-          <USkeleton class="h-40" />
+  <UModal
+    v-model:open="isDetailOpen"
+    :title="
+      selectedItem ?
+        `#${selectedItem.id} ${selectedItem.title}`
+      : 'Work item detail'
+    "
+    :description="activeProject"
+  >
+    <template #body>
+      <div v-if="detailPending" class="space-y-4">
+        <USkeleton class="h-8" />
+        <USkeleton class="h-40" />
+      </div>
+
+      <div v-else-if="selectedItem" class="space-y-5">
+        <div class="flex flex-wrap items-center gap-2">
+          <UBadge color="neutral" variant="soft">{{
+            selectedItem.type
+          }}</UBadge>
+          <UBadge :color="stateColor(selectedItem.state)" variant="soft">{{
+            selectedItem.state
+          }}</UBadge>
+          <UBadge v-if="selectedItem.priority" color="warning" variant="soft"
+            >P{{ selectedItem.priority }}</UBadge
+          >
+          <UBadge
+            v-for="tag in selectedItem.tags"
+            :key="tag"
+            color="neutral"
+            variant="outline"
+            >{{ tag }}</UBadge
+          >
         </div>
 
-        <div v-else-if="selectedItem" class="space-y-5">
-          <div class="flex flex-wrap items-center gap-2">
-            <UBadge color="neutral" variant="soft">{{
-              selectedItem.type
-            }}</UBadge>
-            <UBadge :color="stateColor(selectedItem.state)" variant="soft">{{
-              selectedItem.state
-            }}</UBadge>
-            <UBadge v-if="selectedItem.priority" color="warning" variant="soft"
-              >P{{ selectedItem.priority }}</UBadge
-            >
-            <UBadge
-              v-for="tag in selectedItem.tags"
-              :key="tag"
-              color="neutral"
-              variant="outline"
-              >{{ tag }}</UBadge
-            >
+        <div class="grid gap-3 sm:grid-cols-2">
+          <div class="rounded-lg border border-default p-3">
+            <p class="text-xs text-muted">Assigned to</p>
+            <p class="text-sm text-highlighted">
+              {{ selectedItem.assignedTo || "Unassigned" }}
+            </p>
           </div>
-
-          <div class="grid gap-3 sm:grid-cols-2">
-            <div class="rounded-lg border border-default p-3">
-              <p class="text-xs text-muted">Assigned to</p>
-              <p class="text-sm text-highlighted">
-                {{ selectedItem.assignedTo || "Unassigned" }}
-              </p>
-            </div>
-            <div class="rounded-lg border border-default p-3">
-              <p class="text-xs text-muted">Changed</p>
-              <p class="text-sm text-highlighted">
-                {{ formatDate(selectedItem.changedDate) }}
-              </p>
-            </div>
-            <div class="rounded-lg border border-default p-3">
-              <p class="text-xs text-muted">Area</p>
-              <p class="text-sm text-highlighted">
-                {{ selectedItem.areaPath || "—" }}
-              </p>
-            </div>
-            <div class="rounded-lg border border-default p-3">
-              <p class="text-xs text-muted">Iteration</p>
-              <p class="text-sm text-highlighted">
-                {{ selectedItem.iterationPath || "—" }}
-              </p>
-            </div>
+          <div class="rounded-lg border border-default p-3">
+            <p class="text-xs text-muted">Changed</p>
+            <p class="text-sm text-highlighted">
+              {{ formatDate(selectedItem.changedDate) }}
+            </p>
           </div>
-
-          <UFormField label="Status">
-            <USelectMenu
-              :model-value="selectedItem.state"
-              :items="states"
-              @update:model-value="moveItem(selectedItem, String($event))"
-            />
-          </UFormField>
-
-          <div class="space-y-2">
-            <h3 class="font-semibold text-highlighted">Description</h3>
-            <p
-              class="whitespace-pre-wrap rounded-lg border border-default bg-elevated/40 p-4 text-sm leading-6 text-toned"
-            >
-              {{ stripHtml(selectedItem.description) }}
+          <div class="rounded-lg border border-default p-3">
+            <p class="text-xs text-muted">Area</p>
+            <p class="text-sm text-highlighted">
+              {{ selectedItem.areaPath || "—" }}
+            </p>
+          </div>
+          <div class="rounded-lg border border-default p-3">
+            <p class="text-xs text-muted">Iteration</p>
+            <p class="text-sm text-highlighted">
+              {{ selectedItem.iterationPath || "—" }}
             </p>
           </div>
         </div>
-      </template>
 
-      <template #footer>
-        <div class="flex w-full justify-between gap-3">
-          <UButton
-            v-if="selectedItem?.webUrl"
-            :to="selectedItem.webUrl"
-            target="_blank"
-            icon="i-lucide-external-link"
-            color="neutral"
-            variant="subtle"
+        <UFormField label="Status">
+          <USelectMenu
+            :model-value="selectedItem.state"
+            :items="states"
+            @update:model-value="moveItem(selectedItem, String($event))"
+          />
+        </UFormField>
+
+        <div class="space-y-2">
+          <h3 class="font-semibold text-highlighted">Description</h3>
+          <p
+            class="whitespace-pre-wrap rounded-lg border border-default bg-elevated/40 p-4 text-sm leading-6 text-toned"
           >
-            Open in Azure
-          </UButton>
-          <UButton color="neutral" variant="ghost" @click="isDetailOpen = false"
-            >Close</UButton
-          >
+            {{ stripHtml(selectedItem.description) }}
+          </p>
         </div>
-      </template>
-    </UModal>
+      </div>
+    </template>
+
+    <template #footer>
+      <div class="flex w-full justify-between gap-3">
+        <UButton
+          v-if="selectedItem?.webUrl"
+          :to="selectedItem.webUrl"
+          target="_blank"
+          icon="i-lucide-external-link"
+          color="neutral"
+          variant="subtle"
+        >
+          Open in Azure
+        </UButton>
+        <UButton color="neutral" variant="ghost" @click="isDetailOpen = false"
+          >Close</UButton
+        >
+      </div>
+    </template>
+  </UModal>
 </template>
