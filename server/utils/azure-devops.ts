@@ -297,6 +297,10 @@ function getFieldNumber(
   return Number.isFinite(number) ? number : undefined;
 }
 
+function isTaskWorkItemType(type: string): boolean {
+  return type.trim().toLowerCase() === "task";
+}
+
 function getRuntimeConfig() {
   const runtimeGlobal = globalThis as typeof globalThis & {
     useRuntimeConfig?: () => {
@@ -473,23 +477,36 @@ function getFirstFieldNumber(
   return undefined;
 }
 
-export function getEstimateFieldValues(fields: Record<string, unknown>): {
+export function getEstimateFieldValues(
+  fields: Record<string, unknown>,
+  workItemType = String(fields["System.WorkItemType"] ?? ""),
+): {
   estimatedStoryPoints?: number;
   effort?: number;
 } {
+  const storyPoints = getFirstFieldNumber(fields, [
+    "Custom.EstimatedSP",
+    "Custom.Estimated_x0020_SP",
+    "Custom.EstimatedStoryPoints",
+    "Microsoft.VSTS.Scheduling.StoryPoints",
+    "Microsoft.VSTS.Scheduling.OriginalEstimate",
+  ]);
+  const effort = getFirstFieldNumber(fields, [
+    "Custom.Effort",
+    "Microsoft.VSTS.Scheduling.Effort",
+    "Microsoft.VSTS.Scheduling.StoryPoints",
+  ]);
+
+  if (isTaskWorkItemType(workItemType)) {
+    return {
+      estimatedStoryPoints: storyPoints ?? effort,
+      effort,
+    };
+  }
+
   return {
-    estimatedStoryPoints: getFirstFieldNumber(fields, [
-      "Custom.EstimatedSP",
-      "Custom.Estimated_x0020_SP",
-      "Custom.EstimatedStoryPoints",
-      "Microsoft.VSTS.Scheduling.StoryPoints",
-      "Microsoft.VSTS.Scheduling.OriginalEstimate",
-    ]),
-    effort: getFirstFieldNumber(fields, [
-      "Custom.Effort",
-      "Microsoft.VSTS.Scheduling.Effort",
-      "Microsoft.VSTS.Scheduling.StoryPoints",
-    ]),
+    estimatedStoryPoints: storyPoints,
+    effort,
   };
 }
 
