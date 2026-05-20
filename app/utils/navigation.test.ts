@@ -25,7 +25,7 @@ describe('project navigation routes', () => {
     expect(buildProjectSectionPath('KiriminAja2026', normalizeRouteProjectName('OPI%252525252520Board'), 'sprint-task')).toBe('/KiriminAja2026/OPI%20Board/sprint-task')
   })
 
-  it('builds a Nuxt router location for switching sprint teams through Tasks', () => {
+  it('builds a Nuxt router location for switching sprint teams through the Sprint Task route', () => {
     expect(buildProjectSectionRoute(
       { team: 'Old Squad', sprint: 'Sprint 1', keyword: '#383' },
       'KiriminAja2026',
@@ -33,7 +33,7 @@ describe('project navigation routes', () => {
       'sprint-task',
       { team: 'Internal Squad' }
     )).toEqual({
-      path: '/KiriminAja2026/OPI%20Board/tasks',
+      path: '/KiriminAja2026/OPI%20Board/sprint-task',
       query: {
         keyword: '#383',
         team: 'Internal Squad'

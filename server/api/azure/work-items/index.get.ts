@@ -28,10 +28,44 @@ function getStringArrayQueryValue(value: unknown): string[] | undefined {
   const values = Array.isArray(value) ? value : [value]
   const normalized = values
     .flatMap((item) => String(item || '').split(','))
-    .map((item) => item.trim())
+    .map((item) => normalizeQueryString(item))
     .filter(Boolean)
 
   return normalized.length ? normalized : undefined
+}
+
+function filterSprintItems(
+  items: Awaited<ReturnType<typeof listSprintPbis>>,
+  filters: WorkItemListFilters
+): Awaited<ReturnType<typeof listSprintPbis>> {
+  const keyword = filters.keyword?.trim().replace(/^#/, '').toLowerCase()
+  const assignedTo = (Array.isArray(filters.assignedTo) ? filters.assignedTo : filters.assignedTo ? [filters.assignedTo] : [])
+    .map((value: string) => value.toLowerCase())
+  const createdBy = (Array.isArray(filters.createdBy) ? filters.createdBy : filters.createdBy ? [filters.createdBy] : [])
+    .map((value: string) => value.toLowerCase())
+
+  return items.filter((item) => {
+    const searchable = [
+      item.id,
+      item.title,
+      item.type,
+      item.state,
+      item.assignedTo,
+      item.createdBy,
+      item.areaPath,
+      item.iterationPath,
+      ...(item.tags ?? [])
+    ]
+      .filter((value) => value !== undefined && value !== null)
+      .join(' ')
+      .toLowerCase()
+
+    const matchesKeyword = !keyword || searchable.includes(keyword)
+    const matchesAssigned = !assignedTo.length || assignedTo.some((value: string) => searchable.includes(value))
+    const matchesCreated = !createdBy.length || createdBy.some((value: string) => String(item.createdBy || '').toLowerCase().includes(value))
+
+    return matchesKeyword && matchesAssigned && matchesCreated
+  })
 }
 
 function getNumberQueryValue(value: unknown): number | undefined {
@@ -55,7 +89,7 @@ export default defineEventHandler(async (event): Promise<WorkItemListResult> => 
 
   return await withAzureOrganization(organization, async () => {
     if (iterationPath) {
-      const items = await listSprintPbis(project, iterationPath)
+      const items = filterSprintItems(await listSprintPbis(project, iterationPath), filters)
       return {
         items,
         total: items.length,

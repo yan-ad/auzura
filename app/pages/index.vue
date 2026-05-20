@@ -46,7 +46,6 @@ const itemsPerPage = ref(50);
 const searchKeyword = ref("");
 const assignedMembers = ref<string[]>([]);
 const createdMembers = ref<string[]>([]);
-const taskViewMode = ref<"sprint" | "all">("sprint");
 
 const form = reactive({
   title: "",
@@ -67,6 +66,10 @@ function getRouteParam(value: unknown): string {
   return Array.isArray(value) ?
       String(value[0] || "").trim()
     : String(value || "").trim();
+}
+
+function withOrganizationQuery(path: string) {
+  return `${path}${organizationQuery.value ? `&${organizationQuery.value}` : ""}`;
 }
 
 const routeProjectParams = computed(() => getRouteProjectParams(route.path));
@@ -304,13 +307,45 @@ const sprintOptions = computed(() =>
 const selectedSprint = computed(() =>
   sprints.value.find((sprint) => sprint.path === selectedSprintPath.value),
 );
-const isSprintTaskView = computed(
-  () => activeSection.value === "tasks" && taskViewMode.value === "sprint",
+const isSprintTaskView = computed(() => activeSection.value === "sprint-task");
+
+function appendQuery(
+  path: string,
+  params: Record<string, string | number | string[] | undefined>,
+) {
+  const query = Object.entries(params)
+    .flatMap(([key, value]) =>
+      Array.isArray(value) ?
+        value.map((item) => [key, item] as const)
+      : [[key, value] as const],
+    )
+    .filter(([, value]) => value !== undefined && String(value).trim() !== "")
+    .map(
+      ([key, value]) =>
+        `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`,
+    )
+    .join("&");
+
+  return query ? `${path}&${query}` : path;
+}
+
+const assignedFilterValue = computed(() =>
+  assignedMembers.value.length ? assignedMembers.value : undefined,
+);
+const createdFilterValue = computed(() =>
+  createdMembers.value.length ? createdMembers.value : undefined,
 );
 
 const sprintItemsUrl = computed(() =>
   withOrganizationQuery(
-    `/api/azure/work-items?project=${encodeURIComponent(activeProject.value)}&iterationPath=${encodeURIComponent(selectedSprintPath.value)}`,
+    appendQuery(
+      `/api/azure/work-items?project=${encodeURIComponent(activeProject.value)}&iterationPath=${encodeURIComponent(selectedSprintPath.value)}`,
+      {
+        assignedTo: assignedFilterValue.value,
+        createdBy: createdFilterValue.value,
+        keyword: searchKeyword.value.trim(),
+      },
+    ),
   ),
 );
 const {
@@ -457,7 +492,7 @@ watch(
 );
 
 watch([activeProject, canLoadAzure], async ([project, canLoad]) => {
-  if (!project || !canLoad || activeSection.value !== "tasks") {
+  if (!project || !canLoad || (activeSection.value !== "tasks" && activeSection.value !== "sprint-task")) {
     teamsData.value = undefined;
     sprintsData.value = undefined;
     sprintItemsData.value = undefined;
@@ -465,7 +500,7 @@ watch([activeProject, canLoadAzure], async ([project, canLoad]) => {
   }
 
   await refreshTeams();
-  if (taskViewMode.value === "all") {
+  if (activeSection.value === "tasks") {
     await refreshBoard();
   }
 });
@@ -473,10 +508,9 @@ watch([activeProject, canLoadAzure], async ([project, canLoad]) => {
 watch(
   teams,
   async (value) => {
-    if (activeSection.value !== "tasks") return;
+    if (activeSection.value !== "sprint-task") return;
     if (!value.length) {
       selectedTeam.value = "";
-      taskViewMode.value = "all";
       return;
     }
 
@@ -488,7 +522,6 @@ watch(
     }
 
     if (selectedTeam.value) {
-      taskViewMode.value = "sprint";
       await refreshSprints();
     }
   },
@@ -498,8 +531,7 @@ watch(
 watch(
   [selectedTeam, activeProject, canLoadAzure],
   async ([team, project, canLoad]) => {
-    if (!team || !project || !canLoad || activeSection.value !== "tasks") return;
-    taskViewMode.value = "sprint";
+    if (!team || !project || !canLoad || activeSection.value !== "sprint-task") return;
     await refreshSprints();
   },
 );
@@ -507,7 +539,7 @@ watch(
 watch(
   sprints,
   async (value) => {
-    if (activeSection.value !== "tasks") return;
+    if (activeSection.value !== "sprint-task") return;
     if (!value.length) {
       selectedSprintPath.value = "";
       sprintItemsData.value = undefined;
@@ -543,64 +575,35 @@ watch(
 watch(
   activeSection,
   async (section) => {
-    if (section !== "tasks" || !activeProject.value || !canLoadAzure.value)
+    if ((section !== "tasks" && section !== "sprint-task") || !activeProject.value || !canLoadAzure.value)
       return;
     await refreshTeams();
   },
   { immediate: true },
 );
 
-watch(taskViewMode, async (mode) => {
-  if (activeSection.value !== "tasks" || !activeProject.value || !canLoadAzure.value)
-    return;
+watch(
+  activeSection,
+  async (section) => {
+    if (!activeProject.value || !canLoadAzure.value) return;
+    if (section === "sprint-task") {
+      if (!teams.value.length) await refreshTeams();
+      if (selectedTeam.value) await refreshSprints();
+      if (selectedSprintPath.value) await refreshSprintItems();
+    } else if (section === "tasks") {
+      await refreshBoard();
+    }
+  },
+  { immediate: true },
+);
 
-  if (mode === "sprint") {
-    if (!teams.value.length) await refreshTeams();
-    if (selectedTeam.value) await refreshSprints();
-    if (selectedSprintPath.value) await refreshSprintItems();
-    return;
-  }
-
-  await refreshBoard();
-});
 
 watch([selectedTeam, selectedSprintPath], async ([team, sprint]) => {
-  if (activeSection.value !== "tasks") return;
+  if (activeSection.value !== "tasks" && activeSection.value !== "sprint-task") return;
   const query = buildProjectStateQuery(route.query, { team, sprint });
   if (route.query.team === query.team && route.query.sprint === query.sprint) return;
   await router.replace({ path: route.path, query });
 });
-
-function withOrganizationQuery(path: string) {
-  return `${path}${organizationQuery.value ? `&${organizationQuery.value}` : ""}`;
-}
-
-function appendQuery(
-  path: string,
-  params: Record<string, string | number | string[] | undefined>,
-) {
-  const query = Object.entries(params)
-    .flatMap(([key, value]) =>
-      Array.isArray(value) ?
-        value.map((item) => [key, item] as const)
-      : [[key, value] as const],
-    )
-    .filter(([, value]) => value !== undefined && String(value).trim() !== "")
-    .map(
-      ([key, value]) =>
-        `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`,
-    )
-    .join("&");
-
-  return query ? `${path}&${query}` : path;
-}
-
-const assignedFilterValue = computed(() =>
-  assignedMembers.value.length ? assignedMembers.value : undefined,
-);
-const createdFilterValue = computed(() =>
-  createdMembers.value.length ? createdMembers.value : undefined,
-);
 
 const boardUrl = computed(() =>
   withOrganizationQuery(
@@ -684,8 +687,9 @@ function queueRefresh(scope: "all" | "dashboard" = "all", wait = 350) {
   refreshTimer = setTimeout(async () => {
     if (!canLoadAzure.value || !activeProject.value) return;
 
-    if (scope === "all" || activeSection.value === "tasks") {
-      await refreshBoard();
+    if (scope === "all" || activeSection.value === "tasks" || activeSection.value === "sprint-task") {
+      if (activeSection.value === "sprint-task") await refreshSprintItems();
+      else await refreshBoard();
     }
 
     await refreshDashboard();
@@ -734,7 +738,11 @@ const selectedItem = computed(
     boardItems.value.find((item) => item.id === selectedItemId.value),
 );
 const busy = computed(
-  () => boardPending.value || projectsPending.value || usersPending.value,
+  () =>
+    boardPending.value ||
+    sprintItemsPending.value ||
+    projectsPending.value ||
+    usersPending.value,
 );
 
 function previousPage() {
@@ -834,8 +842,8 @@ const viewNavigation = computed<NavigationMenuItem[][]>(() => [
     {
       label: "Tasks",
       icon: "i-lucide-list-filter",
-      badge: String(isSprintTaskView.value ? sprintItems.value.length : listTotal.value),
-      active: activeSection.value === "tasks" || activeSection.value === "sprint-task",
+      badge: String(listTotal.value),
+      active: activeSection.value === "tasks",
       onSelect: async () => await goToSection("tasks"),
     },
     {
@@ -899,7 +907,11 @@ function stateColor(state?: string) {
 
 async function refreshCurrentView() {
   if (!canLoadAzure.value || !activeProject.value) return;
-  await refreshBoard();
+  if (activeSection.value === "sprint-task") {
+    await refreshSprintItems();
+  } else {
+    await refreshBoard();
+  }
   await refreshDashboard();
   if (selectedItemId.value) {
     await refreshDetail();
@@ -1081,14 +1093,22 @@ async function addOrganization() {
           <UButtonGroup>
             <UButton
               :icon="
-                activeSection === 'tasks' ?
+                activeSection === 'sprint-task' ?
+                  'i-lucide-list-tree'
+                : activeSection === 'tasks' ?
                   'i-lucide-list-filter'
                 : 'i-lucide-chart-no-axes-column'
               "
               color="primary"
               variant="subtle"
             >
-              {{ activeSection === "tasks" ? "Tasks" : "Dashboard Overview" }}
+              {{
+                activeSection === "sprint-task"
+                  ? "Sprint Task"
+                  : activeSection === "tasks"
+                    ? "Tasks"
+                    : "Dashboard Overview"
+              }}
             </UButton>
           </UButtonGroup>
         </template>
@@ -1247,7 +1267,7 @@ async function addOrganization() {
           </div>
         </UCard>
 
-        <UCard v-if="activeSection === 'tasks'" variant="subtle">
+        <UCard v-if="activeSection === 'tasks' || activeSection === 'sprint-task'" variant="subtle">
           <template #header>
             <div class="space-y-4">
               <div
@@ -1256,7 +1276,7 @@ async function addOrganization() {
                 <div>
                   <h2 class="text-lg font-semibold text-highlighted">Tasks</h2>
                   <p class="text-sm text-muted">
-                    <template v-if="isSprintTaskView">
+                    <template v-if="activeSection === 'sprint-task'">
                       {{ selectedSprint?.name || "No sprint selected" }} ·
                       {{ sprintItems.length }} PBI / story
                     </template>
@@ -1267,24 +1287,6 @@ async function addOrganization() {
                   </p>
                 </div>
                 <div class="flex flex-wrap items-center gap-2">
-                  <UButtonGroup>
-                    <UButton
-                      :color="taskViewMode === 'sprint' ? 'primary' : 'neutral'"
-                      :variant="taskViewMode === 'sprint' ? 'subtle' : 'ghost'"
-                      icon="i-lucide-list-tree"
-                      @click="taskViewMode = 'sprint'"
-                    >
-                      Sprint
-                    </UButton>
-                    <UButton
-                      :color="taskViewMode === 'all' ? 'primary' : 'neutral'"
-                      :variant="taskViewMode === 'all' ? 'subtle' : 'ghost'"
-                      icon="i-lucide-list-filter"
-                      @click="taskViewMode = 'all'"
-                    >
-                      All
-                    </UButton>
-                  </UButtonGroup>
                   <UButton
                     icon="i-lucide-refresh-cw"
                     :loading="isSprintTaskView ? sprintItemsPending : boardPending"
@@ -1298,7 +1300,42 @@ async function addOrganization() {
                 </div>
               </div>
 
-              <div v-if="isSprintTaskView" class="grid gap-3 md:grid-cols-2">
+              <div v-if="activeSection === 'sprint-task'" class="space-y-3">
+                <div class="grid gap-3 lg:grid-cols-12">
+                  <UFormField label="Search" class="lg:col-span-4">
+                    <UInput
+                      v-model="searchKeyword"
+                      icon="i-lucide-search"
+                      placeholder="Keyword, title, assignee, or #383"
+                    />
+                  </UFormField>
+
+                  <UFormField label="Assignee" class="lg:col-span-4">
+                    <UInputMenu
+                      v-model="assignedMembers"
+                      icon="i-lucide-user"
+                      :items="userOptions"
+                      :loading="usersPending"
+                      placeholder="Anyone"
+                      multiple
+                      create-item
+                    />
+                  </UFormField>
+
+                  <UFormField label="Reporter" class="lg:col-span-4">
+                    <UInputMenu
+                      v-model="createdMembers"
+                      icon="i-lucide-user-pen"
+                      :items="userOptions"
+                      :loading="usersPending"
+                      placeholder="Anyone"
+                      multiple
+                      create-item
+                    />
+                  </UFormField>
+                </div>
+
+                <div class="grid gap-3 md:grid-cols-2">
                 <UFormField label="Team">
                   <USelectMenu
                     v-model="selectedTeam"
@@ -1320,6 +1357,7 @@ async function addOrganization() {
                     searchable
                   />
                 </UFormField>
+                </div>
               </div>
 
               <div v-else class="grid gap-3 lg:grid-cols-12">
@@ -1365,7 +1403,7 @@ async function addOrganization() {
             </div>
           </template>
 
-          <div v-if="isSprintTaskView" class="space-y-3">
+          <div v-if="activeSection === 'sprint-task'" class="space-y-3">
             <div v-if="sprintItemsPending" class="space-y-3">
               <USkeleton v-for="index in 4" :key="index" class="h-24" />
             </div>
@@ -1568,7 +1606,7 @@ async function addOrganization() {
           </div>
 
           <div
-            v-if="!isSprintTaskView"
+            v-if="activeSection === 'tasks'"
             class="mt-4 flex flex-col gap-3 border-t border-default pt-4 sm:flex-row sm:items-center sm:justify-between"
           >
             <p class="text-sm text-muted">
@@ -1597,14 +1635,14 @@ async function addOrganization() {
           </div>
 
           <p
-            v-if="!isSprintTaskView && !boardPending && activeProject && !boardItems.length"
+            v-if="activeSection === 'tasks' && !boardPending && activeProject && !boardItems.length"
             class="mt-4 rounded-lg border border-dashed border-default p-8 text-center text-sm text-muted"
           >
             No work items match this filter.
           </p>
         </UCard>
 
-        <template v-if="activeSection !== 'tasks'">
+        <template v-if="activeSection !== 'tasks' && activeSection !== 'sprint-task'">
           <UCard variant="subtle">
             <template #header>
               <div>

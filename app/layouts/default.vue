@@ -284,29 +284,24 @@ const organizationProjectMenuItems = computed<DropdownMenuItem[][]>(() => [
   ],
 ]);
 
-async function goToSection(
+function getSectionRoute(
   section: SectionView,
-  selection: { team?: string; sprint?: string } = {},
+  selection: { project?: string; team?: string; sprint?: string } = {},
 ) {
   if (section === "settings") {
-    if (route.path !== "/settings") {
-      await router.replace("/settings");
-    }
-    return;
+    return "/settings";
   }
 
-  const targetRoute = buildProjectSectionRoute(
+  return buildProjectSectionRoute(
     route.query,
     activeOrganization.value,
-    selectedProject.value || "",
+    selection.project ?? selectedProject.value ?? "",
     section,
     {
       team: selection.team ?? selectedTeam.value,
       sprint: selection.sprint ?? selectedSprintPath.value,
     },
   );
-
-  await router.replace(targetRoute);
 }
 
 const viewNavigation = computed<NavigationMenuItem[][]>(() => {
@@ -331,11 +326,10 @@ const viewNavigation = computed<NavigationMenuItem[][]>(() => {
           activeSection.value === "tasks" &&
           selectedProject.value === group.project &&
           selectedTeam.value === team.name,
-        onSelect: async () => {
-          selectedProject.value = group.project;
-          selectedTeam.value = team.name;
-          await goToSection("tasks", { team: team.name });
-        },
+        to: getSectionRoute("sprint-task", {
+          project: group.project,
+          team: team.name,
+        }),
       });
     }
   }
@@ -345,24 +339,20 @@ const viewNavigation = computed<NavigationMenuItem[][]>(() => {
       {
         label: "Tasks",
         icon: "i-lucide-list-filter",
-        active: activeSection.value === "tasks" || activeSection.value === "sprint-task",
-        onSelect: async () => await goToSection("tasks"),
+        active: activeSection.value === "tasks",
+        to: getSectionRoute("tasks"),
       },
       {
         label: "Overview",
         icon: "i-lucide-chart-no-axes-column",
         active: activeSection.value === "report",
-        onSelect: async () => await goToSection("report"),
+        to: getSectionRoute("report"),
       },
       {
         label: "Settings",
         icon: "i-lucide-settings-2",
         active: activeSection.value === "settings",
-        onSelect: async () => {
-          if (route.path !== "/settings") {
-            await router.replace("/settings");
-          }
-        },
+        to: getSectionRoute("settings"),
       },
     ],
     ...(sidebarTeamGroups.value.length || sidebarTeamsPending.value ?
