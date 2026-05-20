@@ -3,8 +3,7 @@ import type { DropdownMenuItem, NavigationMenuItem } from "@nuxt/ui";
 import type { AzureOrganization, AzureProject } from "~/types/azure-devops";
 
 import {
-  buildProjectSectionPath,
-  buildProjectStateQuery,
+  buildProjectSectionRoute,
   getProjectSectionFromPath,
   getRouteProjectParams,
   normalizeRouteProjectName,
@@ -50,15 +49,6 @@ function getRouteParam(value: unknown): string {
     : String(value || "").trim();
 }
 
-async function persistProjectStateQuery(selection: { team?: string; sprint?: string } = {}) {
-  const query = buildProjectStateQuery(route.query, {
-    team: selection.team ?? selectedTeam.value,
-    sprint: selection.sprint ?? selectedSprintPath.value,
-  });
-  if (route.query.team === query.team && route.query.sprint === query.sprint) return;
-  await router.replace({ path: route.path, query });
-}
-
 function withOrganizationQuery(path: string) {
   return `${path}${organizationQuery.value ? `&${organizationQuery.value}` : ""}`;
 }
@@ -99,19 +89,18 @@ watch(
   async ([organization, project]) => {
     if (isGlobalSettingsRoute.value) return;
     if (!organization) return;
-    const targetPath = buildProjectSectionPath(
+    const targetRoute = buildProjectSectionRoute(
+      route.query,
       organization,
       project || "",
       activeSection.value,
+      {
+        team: selectedTeam.value,
+        sprint: selectedSprintPath.value,
+      },
     );
-    if (route.path !== targetPath) {
-      await router.replace({
-        path: targetPath,
-        query: buildProjectStateQuery(route.query, {
-          team: selectedTeam.value,
-          sprint: selectedSprintPath.value,
-        }),
-      });
+    if (route.path !== targetRoute.path) {
+      await router.replace(targetRoute);
     }
   },
 );
@@ -295,7 +284,10 @@ const organizationProjectMenuItems = computed<DropdownMenuItem[][]>(() => [
   ],
 ]);
 
-async function goToSection(section: SectionView) {
+async function goToSection(
+  section: SectionView,
+  selection: { team?: string; sprint?: string } = {},
+) {
   if (section === "settings") {
     if (route.path !== "/settings") {
       await router.replace("/settings");
@@ -303,12 +295,18 @@ async function goToSection(section: SectionView) {
     return;
   }
 
-  const targetPath = buildProjectSectionPath(
+  const targetRoute = buildProjectSectionRoute(
+    route.query,
     activeOrganization.value,
     selectedProject.value || "",
     section,
+    {
+      team: selection.team ?? selectedTeam.value,
+      sprint: selection.sprint ?? selectedSprintPath.value,
+    },
   );
-  if (route.path !== targetPath) await router.replace(targetPath);
+
+  await router.replace(targetRoute);
 }
 
 const viewNavigation = computed<NavigationMenuItem[][]>(() => {
@@ -336,8 +334,7 @@ const viewNavigation = computed<NavigationMenuItem[][]>(() => {
         onSelect: async () => {
           selectedProject.value = group.project;
           selectedTeam.value = team.name;
-          await goToSection("sprint-task");
-          await persistProjectStateQuery({ team: team.name });
+          await goToSection("sprint-task", { team: team.name });
         },
       });
     }

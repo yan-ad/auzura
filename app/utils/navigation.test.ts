@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildProjectSectionPath, buildProjectStateQuery, getProjectSectionFromPath, getRouteProjectParams, isKnownAssetRequestPath, normalizeRouteProjectName } from './navigation'
+import { buildProjectSectionPath, buildProjectSectionRoute, buildProjectStateQuery, getProjectSectionFromPath, getRouteProjectParams, isKnownAssetRequestPath, normalizeRouteProjectName } from './navigation'
 
 describe('project navigation routes', () => {
   it('uses a standalone sprint task page instead of rendering tasks inside the sidebar route', () => {
@@ -23,6 +23,22 @@ describe('project navigation routes', () => {
   it('normalizes repeatedly encoded route project names before writing cookies or API query strings', () => {
     expect(normalizeRouteProjectName('OPI%252525252520Board')).toBe('OPI Board')
     expect(buildProjectSectionPath('KiriminAja2026', normalizeRouteProjectName('OPI%252525252520Board'), 'sprint-task')).toBe('/KiriminAja2026/OPI%20Board/sprint-task')
+  })
+
+  it('builds a Nuxt router location for switching sections with selected team state', () => {
+    expect(buildProjectSectionRoute(
+      { team: 'Old Squad', sprint: 'Sprint 1', keyword: '#383' },
+      'KiriminAja2026',
+      'OPI Board',
+      'sprint-task',
+      { team: 'Internal Squad' }
+    )).toEqual({
+      path: '/KiriminAja2026/OPI%20Board/sprint-task',
+      query: {
+        keyword: '#383',
+        team: 'Internal Squad'
+      }
+    })
   })
 })
 

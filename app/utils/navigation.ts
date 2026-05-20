@@ -98,3 +98,16 @@ export function buildProjectStateQuery(
 
   return query
 }
+
+export function buildProjectSectionRoute(
+  currentQuery: Record<string, unknown>,
+  organization: string,
+  project: string,
+  section: ProjectSection = "tasks",
+  selection: { team?: string; sprint?: string } = {},
+): { path: string; query: Record<string, string> } {
+  return {
+    path: buildProjectSectionPath(organization, project, section),
+    query: buildProjectStateQuery(currentQuery, selection),
+  }
+}
