@@ -11,7 +11,6 @@ import type {
 
 type IdentityFilterMode = "anyone" | "me" | "members";
 type SectionView = "tasks" | "report";
-definePageMeta({ layout: "dashboard" });
 
 const toast = useToast();
 const route = useRoute();

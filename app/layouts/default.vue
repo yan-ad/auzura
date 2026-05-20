@@ -397,6 +397,16 @@ function formatSprintRange(sprint?: AzureSprint): string {
           @update:selected-sprint-path="selectedSprintPath = $event"
         />
       </template>
+      <template #footer="{ collapsed }">
+        <SidebarUserMenuCard
+          v-if="!collapsed"
+          :logged-in="loggedIn"
+          :display-name="user?.displayName"
+          :email="user?.email"
+          :avatar-url="user?.image"
+          :items="userMenuItems"
+        />
+      </template>
     </UDashboardSidebar>
     <slot />
     <UModal v-model:open="isAddOrganizationOpen" title="Add organization">
@@ -429,14 +439,5 @@ function formatSprintRange(sprint?: AzureSprint): string {
         </div>
       </template>
     </UModal>
-    <template #footer="{ collapsed }">
-      <SidebarUserMenuCard
-        v-if="!collapsed"
-        :logged-in="loggedIn"
-        :display-name="user?.displayName"
-        :email="user?.email"
-        :items="userMenuItems"
-      />
-    </template>
   </UDashboardGroup>
 </template>

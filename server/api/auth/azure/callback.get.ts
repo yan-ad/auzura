@@ -13,9 +13,13 @@ type TokenResponse = {
 type ConnectionDataResponse = {
   authenticatedUser?: {
     providerDisplayName?: string
+    imageUrl?: string
     properties?: {
       Account?: { $value?: string }
       Mail?: { $value?: string }
+    }
+    _links?: {
+      avatar?: { href?: string }
     }
   }
 }
@@ -53,12 +57,14 @@ export default defineEventHandler(async (event) => {
   })
   const authenticatedUser = connectionData.authenticatedUser
   const email = authenticatedUser?.properties?.Mail?.$value || authenticatedUser?.properties?.Account?.$value
+  const image = authenticatedUser?.imageUrl || authenticatedUser?._links?.avatar?.href
 
   await setUserSession(event, buildAzureAuthSession({
     accessToken: tokens.access_token,
     expiresIn: tokens.expires_in,
     displayName: authenticatedUser?.providerDisplayName,
-    email
+    email,
+    image
   }))
 
   return sendRedirect(event, typeof query.state === 'string' && query.state.startsWith('/') ? query.state : '/')

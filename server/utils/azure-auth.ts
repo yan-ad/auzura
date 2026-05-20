@@ -23,6 +23,7 @@ export type AzureDevOpsOAuthConfig = {
 export type AzureAuthSessionUser = {
   displayName?: string
   email?: string
+  image?: string
 }
 
 export type AzureAuthSessionSecure = {
@@ -35,13 +36,15 @@ type AzureSessionInput = {
   expiresIn?: number
   displayName?: string
   email?: string
+  image?: string
 }
 
 export function buildAzureAuthSession(input: AzureSessionInput): { user: AzureAuthSessionUser, secure: AzureAuthSessionSecure } {
   return {
     user: {
       displayName: input.displayName || input.email || 'Azure DevOps user',
-      email: input.email
+      email: input.email,
+      image: input.image
     },
     secure: {
       azureAccessToken: input.accessToken,

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+definePageMeta({ layout: false })
+
 const toast = useToast()
 const router = useRouter()
 const selectedOrganization = useCookie<string>('auzura:organization', { default: () => '' })
