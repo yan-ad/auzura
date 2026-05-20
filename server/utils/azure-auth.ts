@@ -89,7 +89,12 @@ export function buildAzureDevOpsOAuthConfig(
   }> = {},
 ): AzureDevOpsOAuthConfig {
   const config = getRuntimeConfig();
-  const organization = getString(overrides.organization);
+  const organization = getString(
+    overrides.organization ||
+      config.azureDevOpsOrganization ||
+      process.env.AZURE_DEVOPS_ORGANIZATION ||
+      process.env.NUXT_PUBLIC_AZURE_DEVOPS_ORGANIZATION,
+  );
   const tenantId = getString(
     overrides.tenantId ||
       config.azureTenantId ||

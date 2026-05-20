@@ -74,7 +74,9 @@ function withOrganizationQuery(path: string) {
 
 const routeProjectParams = computed(() => getRouteProjectParams(route.path));
 const routeOrganization = computed(
-  () => routeProjectParams.value.organization || getRouteParam(route.params.organization),
+  () =>
+    routeProjectParams.value.organization ||
+    getRouteParam(route.params.organization),
 );
 const routeProject = computed(() =>
   normalizeRouteProjectName(
@@ -400,6 +402,31 @@ function totalRelations(item: AzureWorkItem): number {
   return childItems(item).length + relatedItems(item).length;
 }
 
+const boardUrl = computed(() =>
+  withOrganizationQuery(
+    appendQuery(
+      `/api/azure/work-items?project=${encodeURIComponent(activeProject.value)}`,
+      {
+        assignedTo: assignedFilterValue.value,
+        createdBy: createdFilterValue.value,
+        keyword: searchKeyword.value.trim(),
+        offset: (listPage.value - 1) * itemsPerPage.value,
+        limit: itemsPerPage.value,
+      },
+    ),
+  ),
+);
+
+const {
+  data: boardData,
+  pending: boardPending,
+  error: boardError,
+  refresh: refreshBoard,
+} = await useFetch<WorkItemListResponse>(boardUrl, {
+  immediate: false,
+  watch: false,
+});
+
 watch(
   [activeOrganization, canLoadAzure],
   async ([, canLoad]) => {
@@ -492,7 +519,11 @@ watch(
 );
 
 watch([activeProject, canLoadAzure], async ([project, canLoad]) => {
-  if (!project || !canLoad || (activeSection.value !== "tasks" && activeSection.value !== "sprint-task")) {
+  if (
+    !project ||
+    !canLoad ||
+    (activeSection.value !== "tasks" && activeSection.value !== "sprint-task")
+  ) {
     teamsData.value = undefined;
     sprintsData.value = undefined;
     sprintItemsData.value = undefined;
@@ -531,7 +562,8 @@ watch(
 watch(
   [selectedTeam, activeProject, canLoadAzure],
   async ([team, project, canLoad]) => {
-    if (!team || !project || !canLoad || activeSection.value !== "sprint-task") return;
+    if (!team || !project || !canLoad || activeSection.value !== "sprint-task")
+      return;
     await refreshSprints();
   },
 );
@@ -575,7 +607,11 @@ watch(
 watch(
   activeSection,
   async (section) => {
-    if ((section !== "tasks" && section !== "sprint-task") || !activeProject.value || !canLoadAzure.value)
+    if (
+      (section !== "tasks" && section !== "sprint-task") ||
+      !activeProject.value ||
+      !canLoadAzure.value
+    )
       return;
     await refreshTeams();
   },
@@ -597,28 +633,15 @@ watch(
   { immediate: true },
 );
 
-
 watch([selectedTeam, selectedSprintPath], async ([team, sprint]) => {
-  if (activeSection.value !== "tasks" && activeSection.value !== "sprint-task") return;
+  if (activeSection.value !== "tasks" && activeSection.value !== "sprint-task")
+    return;
   const query = buildProjectStateQuery(route.query, { team, sprint });
-  if (route.query.team === query.team && route.query.sprint === query.sprint) return;
+  if (route.query.team === query.team && route.query.sprint === query.sprint)
+    return;
   await router.replace({ path: route.path, query });
 });
 
-const boardUrl = computed(() =>
-  withOrganizationQuery(
-    appendQuery(
-      `/api/azure/work-items?project=${encodeURIComponent(activeProject.value)}`,
-      {
-        assignedTo: assignedFilterValue.value,
-        createdBy: createdFilterValue.value,
-        keyword: searchKeyword.value.trim(),
-        offset: (listPage.value - 1) * itemsPerPage.value,
-        limit: itemsPerPage.value,
-      },
-    ),
-  ),
-);
 const detailUrl = computed(() =>
   selectedItemId.value && activeProject.value ?
     withOrganizationQuery(
@@ -642,16 +665,6 @@ type DashboardMetrics = {
   freshness: Array<{ label: string; count: number; percent: number }>;
   lastSyncedAt?: string;
 };
-
-const {
-  data: boardData,
-  pending: boardPending,
-  error: boardError,
-  refresh: refreshBoard,
-} = await useFetch<WorkItemListResponse>(boardUrl, {
-  immediate: false,
-  watch: false,
-});
 
 const dashboardUrl = computed(() =>
   withOrganizationQuery(
@@ -687,7 +700,11 @@ function queueRefresh(scope: "all" | "dashboard" = "all", wait = 350) {
   refreshTimer = setTimeout(async () => {
     if (!canLoadAzure.value || !activeProject.value) return;
 
-    if (scope === "all" || activeSection.value === "tasks" || activeSection.value === "sprint-task") {
+    if (
+      scope === "all" ||
+      activeSection.value === "tasks" ||
+      activeSection.value === "sprint-task"
+    ) {
       if (activeSection.value === "sprint-task") await refreshSprintItems();
       else await refreshBoard();
     }
@@ -902,15 +919,16 @@ function stateColor(state?: string) {
   if (state === "Closed") return "success";
   if (state === "Resolved") return "info";
   if (state === "Active") return "warning";
+  if (state === "Released") return "success";
   return "neutral";
 }
 
 function formatNumberValue(value?: number) {
-  return value === undefined || value === null ? "—" : String(value);
+  return value === undefined || value === null ? "-" : String(value);
 }
 
 function storyPointLabel(item: AzureWorkItem): string {
-  return item.type === "Task" ? "Estimated SP" : "Effort";
+  return item.type === "Task" ? "SP" : "Effort";
 }
 
 function storyPointValue(item: AzureWorkItem): number | undefined {
@@ -1105,21 +1123,17 @@ async function addOrganization() {
           <UButtonGroup>
             <UButton
               :icon="
-                activeSection === 'sprint-task' ?
-                  'i-lucide-list-tree'
-                : activeSection === 'tasks' ?
-                  'i-lucide-list-filter'
+                activeSection === 'sprint-task' ? 'i-lucide-list-tree'
+                : activeSection === 'tasks' ? 'i-lucide-list-filter'
                 : 'i-lucide-chart-no-axes-column'
               "
               color="primary"
               variant="subtle"
             >
               {{
-                activeSection === "sprint-task"
-                  ? "Sprint Task"
-                  : activeSection === "tasks"
-                    ? "Tasks"
-                    : "Dashboard Overview"
+                activeSection === "sprint-task" ? "Sprint Task"
+                : activeSection === "tasks" ? "Tasks"
+                : "Dashboard Overview"
               }}
             </UButton>
           </UButtonGroup>
@@ -1272,14 +1286,16 @@ async function addOrganization() {
                 v-else
                 class="rounded-lg border border-dashed border-default p-6 text-center text-sm text-muted"
               >
-                Belum ada cache. Refresh Tasks dulu buat populate MongoDB
-                Atlas.
+                Belum ada cache. Refresh Tasks dulu buat populate MongoDB Atlas.
               </p>
             </div>
           </div>
         </UCard>
 
-        <UCard v-if="activeSection === 'tasks' || activeSection === 'sprint-task'" variant="subtle">
+        <UCard
+          v-if="activeSection === 'tasks' || activeSection === 'sprint-task'"
+          variant="subtle"
+        >
           <template #header>
             <div class="space-y-4">
               <div
@@ -1301,11 +1317,15 @@ async function addOrganization() {
                 <div class="flex flex-wrap items-center gap-2">
                   <UButton
                     icon="i-lucide-refresh-cw"
-                    :loading="isSprintTaskView ? sprintItemsPending : boardPending"
+                    :loading="
+                      isSprintTaskView ? sprintItemsPending : boardPending
+                    "
                     color="neutral"
                     variant="subtle"
                     :disabled="isSprintTaskView && !selectedSprintPath"
-                    @click="isSprintTaskView ? refreshSprintItems() : refreshBoard()"
+                    @click="
+                      isSprintTaskView ? refreshSprintItems() : refreshBoard()
+                    "
                   >
                     Refresh
                   </UButton>
@@ -1348,27 +1368,27 @@ async function addOrganization() {
                 </div>
 
                 <div class="grid gap-3 md:grid-cols-2">
-                <UFormField label="Team">
-                  <USelectMenu
-                    v-model="selectedTeam"
-                    :items="teamOptions"
-                    :loading="teamsPending"
-                    placeholder="Team"
-                    class="w-full"
-                    searchable
-                  />
-                </UFormField>
-                <UFormField label="Sprint">
-                  <USelectMenu
-                    v-model="selectedSprintPath"
-                    :items="sprintOptions"
-                    :loading="sprintsPending"
-                    :disabled="!selectedTeam"
-                    placeholder="Sprint iteration"
-                    class="w-full"
-                    searchable
-                  />
-                </UFormField>
+                  <UFormField label="Team">
+                    <USelectMenu
+                      v-model="selectedTeam"
+                      :items="teamOptions"
+                      :loading="teamsPending"
+                      placeholder="Team"
+                      class="w-full"
+                      searchable
+                    />
+                  </UFormField>
+                  <UFormField label="Sprint">
+                    <USelectMenu
+                      v-model="selectedSprintPath"
+                      :items="sprintOptions"
+                      :loading="sprintsPending"
+                      :disabled="!selectedTeam"
+                      placeholder="Sprint iteration"
+                      class="w-full"
+                      searchable
+                    />
+                  </UFormField>
                 </div>
               </div>
 
@@ -1433,9 +1453,17 @@ async function addOrganization() {
                   >
                     <div class="min-w-0 space-y-2">
                       <div class="flex flex-wrap items-center gap-2">
-                        <UBadge color="primary" variant="soft">AZ-{{ item.id }}</UBadge>
-                        <UBadge color="neutral" variant="soft">{{ item.type }}</UBadge>
-                        <UBadge :color="stateColor(item.state)" variant="soft">{{ item.state }}</UBadge>
+                        <UBadge color="primary" variant="soft"
+                          >AZ-{{ item.id }}</UBadge
+                        >
+                        <UBadge color="neutral" variant="soft">{{
+                          item.type
+                        }}</UBadge>
+                        <UBadge
+                          :color="stateColor(item.state)"
+                          variant="soft"
+                          >{{ item.state }}</UBadge
+                        >
                         <UBadge color="info" variant="soft">
                           Effort {{ formatNumberValue(item.effort) }}
                         </UBadge>
@@ -1447,7 +1475,9 @@ async function addOrganization() {
                           {{ totalRelations(item) }} linked
                         </UBadge>
                       </div>
-                      <p class="truncate text-sm font-semibold text-highlighted">
+                      <p
+                        class="truncate text-sm font-semibold text-highlighted"
+                      >
                         {{ item.title }}
                       </p>
                       <p class="truncate text-xs text-muted">
@@ -1456,7 +1486,9 @@ async function addOrganization() {
                       </p>
                     </div>
                     <UIcon
-                      :name="open ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'"
+                      :name="
+                        open ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'
+                      "
                       class="mt-1 size-4 text-muted"
                     />
                   </button>
@@ -1465,7 +1497,9 @@ async function addOrganization() {
                 <template #content>
                   <div class="space-y-4 border-t border-default p-4">
                     <div>
-                      <h3 class="mb-2 text-xs font-semibold uppercase text-muted">
+                      <h3
+                        class="mb-2 text-xs font-semibold uppercase text-muted"
+                      >
                         Child tasks
                       </h3>
                       <div v-if="childItems(item).length" class="space-y-2">
@@ -1482,10 +1516,19 @@ async function addOrganization() {
                           </button>
                           <div class="flex shrink-0 items-center gap-2">
                             <UBadge color="info" variant="soft">
-                              SP {{ formatNumberValue(child.estimatedStoryPoints) }}
+                              SP
+                              {{
+                                formatNumberValue(child.estimatedStoryPoints)
+                              }}
                             </UBadge>
-                            <UBadge color="neutral" variant="soft">{{ child.type }}</UBadge>
-                            <UBadge :color="stateColor(child.state)" variant="soft">{{ child.state }}</UBadge>
+                            <UBadge color="neutral" variant="soft">{{
+                              child.type
+                            }}</UBadge>
+                            <UBadge
+                              :color="stateColor(child.state)"
+                              variant="soft"
+                              >{{ child.state }}</UBadge
+                            >
                           </div>
                         </div>
                       </div>
@@ -1498,7 +1541,9 @@ async function addOrganization() {
                     </div>
 
                     <div>
-                      <h3 class="mb-2 text-xs font-semibold uppercase text-muted">
+                      <h3
+                        class="mb-2 text-xs font-semibold uppercase text-muted"
+                      >
                         Related issues
                       </h3>
                       <div v-if="relatedItems(item).length" class="space-y-2">
@@ -1514,8 +1559,14 @@ async function addOrganization() {
                             AZ-{{ related.id }} · {{ related.title }}
                           </button>
                           <div class="flex shrink-0 items-center gap-2">
-                            <UBadge color="neutral" variant="soft">{{ related.type }}</UBadge>
-                            <UBadge :color="stateColor(related.state)" variant="soft">{{ related.state }}</UBadge>
+                            <UBadge color="neutral" variant="soft">{{
+                              related.type
+                            }}</UBadge>
+                            <UBadge
+                              :color="stateColor(related.state)"
+                              variant="soft"
+                              >{{ related.state }}</UBadge
+                            >
                           </div>
                         </div>
                       </div>
@@ -1591,7 +1642,8 @@ async function addOrganization() {
                 </UBadge>
 
                 <p class="truncate text-sm text-toned">
-                  {{ storyPointLabel(item) }}: {{ formatNumberValue(storyPointValue(item)) }}
+                  {{ storyPointLabel(item) }}:
+                  {{ formatNumberValue(storyPointValue(item)) }}
                 </p>
 
                 <p class="truncate text-sm text-toned">
@@ -1658,14 +1710,21 @@ async function addOrganization() {
           </div>
 
           <p
-            v-if="activeSection === 'tasks' && !boardPending && activeProject && !boardItems.length"
+            v-if="
+              activeSection === 'tasks' &&
+              !boardPending &&
+              activeProject &&
+              !boardItems.length
+            "
             class="mt-4 rounded-lg border border-dashed border-default p-8 text-center text-sm text-muted"
           >
             No work items match this filter.
           </p>
         </UCard>
 
-        <template v-if="activeSection !== 'tasks' && activeSection !== 'sprint-task'">
+        <template
+          v-if="activeSection !== 'tasks' && activeSection !== 'sprint-task'"
+        >
           <UCard variant="subtle">
             <template #header>
               <div>
@@ -1777,7 +1836,8 @@ async function addOrganization() {
             color="info"
             variant="soft"
           >
-            Estimated SP {{ formatNumberValue(selectedItem.estimatedStoryPoints) }}
+            {{ selectedItem.type === "Task" ? "SP" : "Effort" }}
+            {{ formatNumberValue(selectedItem.estimatedStoryPoints) }}
           </UBadge>
           <UBadge v-else color="info" variant="soft">
             Effort {{ formatNumberValue(selectedItem.effort) }}
@@ -1817,7 +1877,9 @@ async function addOrganization() {
             </p>
           </div>
           <div class="rounded-lg border border-default p-3">
-            <p class="text-xs text-muted">Estimated SP</p>
+            <p class="text-xs text-muted">
+              {{ selectedItem.type === "Task" ? "SP" : "Effort" }}
+            </p>
             <p class="text-sm text-highlighted">
               {{ formatNumberValue(selectedItem.estimatedStoryPoints) }}
             </p>

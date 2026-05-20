@@ -55,7 +55,9 @@ function withOrganizationQuery(path: string) {
 
 const routeProjectParams = computed(() => getRouteProjectParams(route.path));
 const routeOrganization = computed(
-  () => routeProjectParams.value.organization || getRouteParam(route.params.organization),
+  () =>
+    routeProjectParams.value.organization ||
+    getRouteParam(route.params.organization),
 );
 const routeProject = computed(() =>
   normalizeRouteProjectName(
@@ -76,8 +78,7 @@ watch(
       selectedOrganization.value = organization;
     if (project && project !== selectedProject.value)
       selectedProject.value = project;
-    if (team && team !== selectedTeam.value)
-      selectedTeam.value = team;
+    if (team && team !== selectedTeam.value) selectedTeam.value = team;
     if (sprint && sprint !== selectedSprintPath.value)
       selectedSprintPath.value = sprint;
   },
@@ -319,7 +320,10 @@ const viewNavigation = computed<NavigationMenuItem[][]>(() => {
       teamsGroup.push({
         label: team.name,
         icon:
-          selectedProject.value === group.project && selectedTeam.value === team.name ?
+          (
+            selectedProject.value === group.project &&
+            selectedTeam.value === team.name
+          ) ?
             "i-lucide-users-round"
           : "i-lucide-users",
         active:
@@ -349,15 +353,31 @@ const viewNavigation = computed<NavigationMenuItem[][]>(() => {
         to: getSectionRoute("report"),
       },
       {
+        label: "Sprints",
+        icon: "i-lucide-flag",
+        active: activeSection.value === "sprint-task",
+        children: sidebarTeamGroups.value.flatMap((group) =>
+          group.teams.map((team) => ({
+            label: team.name,
+
+            active:
+              activeSection.value === "sprint-task" &&
+              selectedProject.value === group.project &&
+              selectedTeam.value === team.name,
+            to: getSectionRoute("sprint-task", {
+              project: group.project,
+              team: team.name,
+            }),
+          })),
+        ),
+      },
+      {
         label: "Settings",
         icon: "i-lucide-settings-2",
         active: activeSection.value === "settings",
         to: getSectionRoute("settings"),
       },
     ],
-    ...(sidebarTeamGroups.value.length || sidebarTeamsPending.value ?
-      [teamsGroup]
-    : []),
   ];
 });
 </script>
