@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildWorkItemBatchBody, buildProjectTeamsUrl, buildWorkItemsWiql, chunkWorkItemIds, getAzureCollectionItems, getGraphUsersFromResponse, getRelationTargetIds, groupWorkItemRelations, isAssignedToCandidate, isCreatedByCandidate, normalizeUser, normalizeWorkItem } from './azure-devops'
+import { buildWorkItemBatchBody, buildProjectTeamsUrl, buildWorkItemsWiql, chunkWorkItemIds, getAzureCollectionItems, getEstimateFieldValues, getGraphUsersFromResponse, getRelationTargetIds, groupWorkItemRelations, isAssignedToCandidate, isCreatedByCandidate, normalizeUser, normalizeWorkItem } from './azure-devops'
 
 describe('buildWorkItemsWiql', () => {
   it('uses Azure DevOps @project context instead of interpolating a project literal', () => {
@@ -130,10 +130,21 @@ describe('groupWorkItemRelations', () => {
 
 
 describe('buildWorkItemBatchBody', () => {
-  it('requests custom story point fields for cached list rendering', () => {
-    expect(buildWorkItemBatchBody([383]).fields).toEqual(
+  it('only requests built-in fields by default because Azure rejects unknown custom fields', () => {
+    expect(buildWorkItemBatchBody([383]).fields).not.toEqual(
       expect.arrayContaining(['Custom.EstimatedSP', 'Custom.Effort'])
     )
+    expect(buildWorkItemBatchBody([383]).fields).toEqual(
+      expect.arrayContaining(['System.Id', 'System.Title', 'System.State'])
+    )
+  })
+
+  it('can request a single optional custom field when probing available estimate fields', () => {
+    expect(buildWorkItemBatchBody([383], { fields: ['System.Id', 'Custom.Effort'] })).toEqual({
+      ids: [383],
+      fields: ['System.Id', 'Custom.Effort'],
+      $expand: 'Links'
+    })
   })
 
   it('does not send fields when expanding relations because Azure DevOps rejects that combination', () => {
@@ -160,5 +171,33 @@ describe('normalizeWorkItem', () => {
 
     expect(item.estimatedStoryPoints).toBe(3)
     expect(item.effort).toBe(8)
+  })
+
+  it('normalizes Azure process estimate fields when custom labels use different reference names', () => {
+    const item = normalizeWorkItem({
+      id: 384,
+      fields: {
+        'System.WorkItemType': 'Product Backlog Item',
+        'System.Title': 'PBI with process effort',
+        'System.State': 'Active',
+        'Microsoft.VSTS.Scheduling.StoryPoints': 5,
+        'Microsoft.VSTS.Scheduling.Effort': '13'
+      }
+    })
+
+    expect(item.estimatedStoryPoints).toBe(5)
+    expect(item.effort).toBe(13)
+  })
+})
+
+describe('getEstimateFieldValues', () => {
+  it('uses available estimate field candidates without requiring all custom fields to exist', () => {
+    expect(getEstimateFieldValues({
+      'Microsoft.VSTS.Scheduling.StoryPoints': 8,
+      'Microsoft.VSTS.Scheduling.Effort': 21
+    })).toEqual({
+      estimatedStoryPoints: 8,
+      effort: 21
+    })
   })
 })
