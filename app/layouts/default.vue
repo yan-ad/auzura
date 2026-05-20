@@ -261,13 +261,6 @@ const organizationProjectMenuItems = computed<DropdownMenuItem[][]>(() => [
       selectedProject.value = "";
     },
   })),
-  projectOptions.value.map((project) => ({
-    label: project,
-    icon: "i-lucide-folder-kanban",
-    onSelect: () => {
-      selectedProject.value = project;
-    },
-  })),
   [
     {
       label: "Set current as default",
