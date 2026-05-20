@@ -189,10 +189,14 @@ watch(
   { immediate: true },
 );
 
-watch([activeProject, canLoadAzure], async ([project, canLoad]) => {
-  if (!project || !canLoad) return;
-  await refreshTeams();
-});
+watch(
+  [activeProject, canLoadAzure],
+  async ([project, canLoad]) => {
+    if (!project || !canLoad) return;
+    await refreshTeams();
+  },
+  { immediate: true },
+);
 
 watch(
   teamOptions,
