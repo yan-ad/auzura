@@ -48,6 +48,13 @@ export interface AzureProject {
   visibility?: string
 }
 
+export interface AzureOrganization {
+  id: string
+  name: string
+  slug: string
+  url?: string
+}
+
 export interface AzureUser {
   displayName: string
   uniqueName?: string

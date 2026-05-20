@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { NavigationMenuItem } from '@nuxt/ui'
-import type { AzureProject, AzureUser, AzureWorkItem } from '~/types/azure-devops'
+import type { AzureOrganization, AzureProject, AzureUser, AzureWorkItem } from '~/types/azure-devops'
 
 type IdentityFilterMode = 'anyone' | 'me' | 'members'
 
@@ -43,7 +43,14 @@ const { data: projectsData, pending: projectsPending, error: projectsError, refr
 const projects = computed(() => projectsData.value?.projects ?? [])
 const projectOptions = computed(() => projects.value.map((project) => project.name))
 const activeProject = computed(() => selectedProject.value || projectOptions.value[0] || '')
-const canLoadAzure = computed(() => loggedIn.value)
+const canQueryAzure = computed(() => loggedIn.value)
+const canLoadAzure = computed(() => canQueryAzure.value && Boolean(activeOrganization.value))
+
+const { data: organizationsData, refresh: refreshOrganizations } = await useFetch<{ organizations: AzureOrganization[] }>('/api/azure/organizations', {
+  immediate: false,
+  watch: false
+})
+const organizationOptions = computed(() => (organizationsData.value?.organizations ?? []).map((organization) => organization.slug))
 
 const usersUrl = computed(() => withOrganizationQuery('/api/azure/users?'))
 const { data: usersData, pending: usersPending, error: usersError, refresh: refreshUsers } = await useFetch<{ users: AzureUser[] }>(usersUrl, {
@@ -55,12 +62,14 @@ const userOptions = computed(() => users.value.map((azureUser) => azureUser.emai
   ? `${azureUser.displayName} <${azureUser.email}>`
   : azureUser.displayName))
 
-watch([activeOrganization, canLoadAzure], async ([, isLoggedIn]) => {
+watch([activeOrganization, canLoadAzure], async ([, canLoad]) => {
   selectedProject.value = ''
 
-  if (!isLoggedIn) {
+  if (!canLoad) {
     projectsData.value = undefined
     projectsError.value = undefined
+    usersData.value = undefined
+    usersError.value = undefined
     return
   }
 
@@ -68,6 +77,15 @@ watch([activeOrganization, canLoadAzure], async ([, isLoggedIn]) => {
     refreshProjects(),
     refreshUsers()
   ])
+}, { immediate: true })
+
+watch(canQueryAzure, async (isLoggedIn) => {
+  if (!isLoggedIn) {
+    organizationsData.value = undefined
+    return
+  }
+
+  await refreshOrganizations()
 }, { immediate: true })
 
 watch(projectOptions, (options) => {
@@ -219,7 +237,7 @@ const dashboardStats = computed<Array<{
 }, {
   title: 'Azure organization',
   icon: 'i-lucide-building-2',
-  value: activeOrganization.value || 'Env default',
+  value: activeOrganization.value || '—',
   tone: 'neutral'
 }])
 
@@ -395,8 +413,11 @@ async function openDetail(item: AzureWorkItem) {
         </div>
 
         <div v-if="!collapsed" class="mt-4 space-y-4 rounded-xl border border-default bg-default/60 p-3">
-          <UFormField label="Organization" help="Empty uses env default.">
-            <UInput v-model="selectedOrganization" icon="i-lucide-building-2" placeholder="your-azure-org" />
+          <UFormField label="Organization" help="Required. Enter your Azure DevOps organization slug.">
+            <UInput v-model="selectedOrganization" icon="i-lucide-building-2" placeholder="your-azure-org" list="azure-organization-list" />
+            <datalist id="azure-organization-list">
+              <option v-for="organization in organizationOptions" :key="organization" :value="organization" />
+            </datalist>
           </UFormField>
 
           <UFormField label="Project">

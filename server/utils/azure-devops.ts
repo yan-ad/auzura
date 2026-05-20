@@ -47,6 +47,17 @@ type AzureConnectionDataResponse = {
   }
 }
 
+type AzureProfileResponse = {
+  id?: string
+}
+
+type AzureAccountResponse = {
+  accountId?: string
+  accountName?: string
+  accountUri?: string
+  organizationName?: string
+}
+
 type AzureGraphUserResponse = {
   subjectKind?: string
   displayName?: string
@@ -220,20 +231,8 @@ function getRuntimeConfig() {
     : { public: {} }
 }
 
-function getConfiguredOrganization(): string {
-  const config = getRuntimeConfig()
-  return String(
-    config.azureDevOpsOrganization
-    || config.public?.azureDevOpsOrganization
-    || process.env.NUXT_AZURE_DEVOPS_ORGANIZATION
-    || process.env.NUXT_PUBLIC_AZURE_DEVOPS_ORGANIZATION
-    || process.env.AZURE_DEVOPS_ORGANIZATION
-    || ''
-  ).trim()
-}
-
 export function getAzureOrganizationFromQuery(query: AzureQuery): string {
-  const value = query.organization || query.org || azureOrganizationStorage.getStore() || getConfiguredOrganization()
+  const value = query.organization || query.org || azureOrganizationStorage.getStore()
   return Array.isArray(value) ? String(value[0] || '').trim() : String(value || '').trim()
 }
 
@@ -244,12 +243,12 @@ export async function withAzureOrganization<T>(organization: string | undefined,
 }
 
 export function getAzureConfig(): { organization: string } {
-  const organization = azureOrganizationStorage.getStore() || getConfiguredOrganization()
+  const organization = azureOrganizationStorage.getStore()
 
   if (!organization) {
     throw createError({
-      statusCode: 500,
-      statusMessage: 'Azure DevOps organization is not configured. Set the organization query parameter, NUXT_PUBLIC_AZURE_DEVOPS_ORGANIZATION, or AZURE_DEVOPS_ORGANIZATION.'
+      statusCode: 400,
+      statusMessage: 'Azure DevOps organization is required. Set the organization query parameter.'
     })
   }
 
@@ -267,6 +266,12 @@ function getVisualStudioGraphUrl(organization: string, path: string): string {
 function getProjectUrl(organization: string, project: string, path: string): string {
   const encodedProject = encodeURIComponent(project)
   return `https://dev.azure.com/${organization}/${encodedProject}/_apis/${path}`
+}
+
+function getOrganizationSlug(account: AzureAccountResponse): string {
+  const uriSlug = account.accountUri?.match(/^https:\/\/dev\.azure\.com\/([^/]+)/i)?.[1]?.trim()
+  const slug = uriSlug || account.accountName || account.organizationName || ''
+  return slug.trim()
 }
 
 async function azureFetch<T>(url: string, init: Parameters<typeof $fetch>[1] = {}): Promise<T> {
@@ -430,6 +435,40 @@ export async function getCurrentUser(): Promise<{ displayName?: string, email?: 
     displayName: user?.providerDisplayName,
     email: user?.properties?.Mail?.$value || user?.properties?.Account?.$value
   }
+}
+
+export async function listOrganizations(): Promise<Array<{ id: string, name: string, slug: string, url?: string }>> {
+  const profile = await azureFetch<AzureProfileResponse>(
+    'https://app.vssps.visualstudio.com/_apis/profile/profiles/me?api-version=7.1-preview.3'
+  )
+  const memberId = profile.id?.trim()
+
+  if (!memberId) {
+    return []
+  }
+
+  const response = await azureFetch<{ value: AzureAccountResponse[] }>(
+    `https://app.vssps.visualstudio.com/_apis/accounts?memberId=${encodeURIComponent(memberId)}&api-version=7.1-preview.1`
+  )
+
+  const seen = new Set<string>()
+  const organizations: Array<{ id: string, name: string, slug: string, url?: string }> = []
+
+  for (const account of response.value) {
+    const slug = getOrganizationSlug(account)
+    if (!slug || seen.has(slug)) continue
+    seen.add(slug)
+    organizations.push({
+      id: account.accountId || slug,
+      name: account.accountName || account.organizationName || slug,
+      slug,
+      url: account.accountUri
+    })
+  }
+
+  organizations.sort((first, second) => first.name.localeCompare(second.name))
+
+  return organizations
 }
 
 
