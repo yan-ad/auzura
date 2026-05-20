@@ -13,6 +13,7 @@ export default defineNuxtConfig({
     azureRedirectUri: process.env.NUXT_AZURE_REDIRECT_URI || process.env.AZURE_REDIRECT_URI || 'https://auzura.vercel.app/api/auth/azure/callback',
     mongodbUri: process.env.MONGODB_URI || '',
     mongodbDb: process.env.MONGODB_DB || 'auzura',
+    azureDevOpsWebhookSecret: process.env.NUXT_AZURE_DEVOPS_WEBHOOK_SECRET || process.env.AZURE_DEVOPS_WEBHOOK_SECRET || '',
     session: {
       password: process.env.NUXT_SESSION_PASSWORD || ''
     },

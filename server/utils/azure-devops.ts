@@ -227,6 +227,8 @@ function workItemMatchesKeyword(item: AzureWorkItem, keyword: string): boolean {
     item.assignedTo,
     item.assignedToUniqueName,
     item.createdBy,
+    item.estimatedStoryPoints === undefined ? undefined : String(item.estimatedStoryPoints),
+    item.effort === undefined ? undefined : String(item.effort),
     item.areaPath,
     item.iterationPath,
     ...item.tags,
@@ -476,6 +478,8 @@ export function normalizeWorkItem(item: AzureWorkItemResponse): AzureWorkItem {
     reason: getFieldString(fields, "System.Reason"),
     priority: getFieldNumber(fields, "Microsoft.VSTS.Common.Priority"),
     severity: getFieldString(fields, "Microsoft.VSTS.Common.Severity"),
+    estimatedStoryPoints: getFieldNumber(fields, "Custom.EstimatedSP"),
+    effort: getFieldNumber(fields, "Custom.Effort"),
     assignedTo: getIdentityDisplayName(fields["System.AssignedTo"]),
     assignedToUniqueName: getIdentityUniqueName(fields["System.AssignedTo"]),
     createdBy: getIdentityDisplayName(fields["System.CreatedBy"]),
@@ -582,6 +586,8 @@ const WORK_ITEM_FIELDS = [
   "Microsoft.VSTS.Common.AcceptanceCriteria",
   "Microsoft.VSTS.Common.Priority",
   "Microsoft.VSTS.Common.Severity",
+  "Custom.EstimatedSP",
+  "Custom.Effort",
 ];
 
 export function buildWorkItemBatchBody(

@@ -905,6 +905,18 @@ function stateColor(state?: string) {
   return "neutral";
 }
 
+function formatNumberValue(value?: number) {
+  return value === undefined || value === null ? "—" : String(value);
+}
+
+function storyPointLabel(item: AzureWorkItem): string {
+  return item.type === "Task" ? "Estimated SP" : "Effort";
+}
+
+function storyPointValue(item: AzureWorkItem): number | undefined {
+  return item.type === "Task" ? item.estimatedStoryPoints : item.effort;
+}
+
 async function refreshCurrentView() {
   if (!canLoadAzure.value || !activeProject.value) return;
   if (activeSection.value === "sprint-task") {
@@ -1424,6 +1436,9 @@ async function addOrganization() {
                         <UBadge color="primary" variant="soft">AZ-{{ item.id }}</UBadge>
                         <UBadge color="neutral" variant="soft">{{ item.type }}</UBadge>
                         <UBadge :color="stateColor(item.state)" variant="soft">{{ item.state }}</UBadge>
+                        <UBadge color="info" variant="soft">
+                          Effort {{ formatNumberValue(item.effort) }}
+                        </UBadge>
                         <UBadge
                           v-if="totalRelations(item)"
                           color="neutral"
@@ -1466,6 +1481,9 @@ async function addOrganization() {
                             AZ-{{ child.id }} · {{ child.title }}
                           </button>
                           <div class="flex shrink-0 items-center gap-2">
+                            <UBadge color="info" variant="soft">
+                              SP {{ formatNumberValue(child.estimatedStoryPoints) }}
+                            </UBadge>
                             <UBadge color="neutral" variant="soft">{{ child.type }}</UBadge>
                             <UBadge :color="stateColor(child.state)" variant="soft">{{ child.state }}</UBadge>
                           </div>
@@ -1523,11 +1541,12 @@ async function addOrganization() {
 
           <div v-else class="overflow-hidden rounded-lg border border-default">
             <div
-              class="grid grid-cols-[112px_minmax(300px,1fr)_140px_170px_170px_150px_88px] items-center gap-2 border-b border-default bg-elevated/40 px-3 py-2 text-[11px] font-medium uppercase text-muted"
+              class="grid grid-cols-[112px_minmax(280px,1fr)_140px_96px_170px_170px_150px_88px] items-center gap-2 border-b border-default bg-elevated/40 px-3 py-2 text-[11px] font-medium uppercase text-muted"
             >
               <span>Issue Key</span>
               <span>Summary</span>
               <span>Type</span>
+              <span>SP / Effort</span>
               <span>Assignee</span>
               <span>Reporter</span>
               <span>Updated</span>
@@ -1542,7 +1561,7 @@ async function addOrganization() {
               <div
                 v-for="item in boardItems"
                 :key="item.id"
-                class="grid grid-cols-[112px_minmax(300px,1fr)_140px_170px_170px_150px_88px] items-center gap-2 px-3 py-2 hover:bg-elevated/40"
+                class="grid grid-cols-[112px_minmax(280px,1fr)_140px_96px_170px_170px_150px_88px] items-center gap-2 px-3 py-2 hover:bg-elevated/40"
               >
                 <button
                   class="truncate text-left text-xs font-medium text-primary hover:underline"
@@ -1570,6 +1589,10 @@ async function addOrganization() {
                 <UBadge color="neutral" variant="soft" class="w-fit">
                   {{ item.type }}
                 </UBadge>
+
+                <p class="truncate text-sm text-toned">
+                  {{ storyPointLabel(item) }}: {{ formatNumberValue(storyPointValue(item)) }}
+                </p>
 
                 <p class="truncate text-sm text-toned">
                   {{ item.assignedTo || "Unassigned" }}
@@ -1750,6 +1773,16 @@ async function addOrganization() {
             >P{{ selectedItem.priority }}</UBadge
           >
           <UBadge
+            v-if="selectedItem.type === 'Task'"
+            color="info"
+            variant="soft"
+          >
+            Estimated SP {{ formatNumberValue(selectedItem.estimatedStoryPoints) }}
+          </UBadge>
+          <UBadge v-else color="info" variant="soft">
+            Effort {{ formatNumberValue(selectedItem.effort) }}
+          </UBadge>
+          <UBadge
             v-for="tag in selectedItem.tags"
             :key="tag"
             color="neutral"
@@ -1781,6 +1814,18 @@ async function addOrganization() {
             <p class="text-xs text-muted">Iteration</p>
             <p class="text-sm text-highlighted">
               {{ selectedItem.iterationPath || "—" }}
+            </p>
+          </div>
+          <div class="rounded-lg border border-default p-3">
+            <p class="text-xs text-muted">Estimated SP</p>
+            <p class="text-sm text-highlighted">
+              {{ formatNumberValue(selectedItem.estimatedStoryPoints) }}
+            </p>
+          </div>
+          <div class="rounded-lg border border-default p-3">
+            <p class="text-xs text-muted">Effort</p>
+            <p class="text-sm text-highlighted">
+              {{ formatNumberValue(selectedItem.effort) }}
             </p>
           </div>
         </div>

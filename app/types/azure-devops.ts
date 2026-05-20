@@ -29,6 +29,8 @@ export interface AzureWorkItem {
   reason?: string;
   priority?: number;
   severity?: string;
+  estimatedStoryPoints?: number;
+  effort?: number;
   assignedTo?: string;
   assignedToUniqueName?: string;
   createdBy?: string;
@@ -90,4 +92,20 @@ export interface AzureSprint {
   startDate?: string;
   finishDate?: string;
   timeFrame?: string;
+}
+
+export interface AzureWebhookSubscription {
+  id: string;
+  organization: string;
+  project: string;
+  eventTypes: string[];
+  callbackUrl: string;
+  isActive: boolean;
+  description?: string;
+  secretPreview: string;
+  lastEventType?: string;
+  lastEventResourceId?: string;
+  lastReceivedAt?: string;
+  createdAt: string;
+  updatedAt: string;
 }
