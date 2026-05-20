@@ -351,22 +351,6 @@ function formatSprintRange(sprint?: AzureSprint): string {
       class="bg-elevated/40"
     >
       <template #header="{ collapsed }">
-        <div class="flex min-w-0 items-center gap-3 px-1 py-2">
-          <div
-            class="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 ring ring-primary/25"
-          >
-            <UIcon
-              name="icon-park-solid:speed-one"
-              class="size-5 text-primary"
-            />
-          </div>
-          <div v-if="!collapsed" class="min-w-0">
-            <p class="truncate text-sm font-semibold text-highlighted">
-              Auzura
-            </p>
-            <p class="truncate text-xs text-muted">Azure Boards Cockpit</p>
-          </div>
-        </div>
         <SidebarWorkspaceMenuCard
           v-if="!collapsed"
           :active-organization="activeOrganization"
