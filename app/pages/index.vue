@@ -5,6 +5,7 @@ import {
   buildProjectStateQuery,
   getProjectSectionFromPath,
   getRouteProjectParams,
+  normalizeRouteProjectName,
   type ProjectSection,
 } from "~/utils/navigation";
 import type {
@@ -79,8 +80,10 @@ const routeProjectParams = computed(() => getRouteProjectParams(route.path));
 const routeOrganization = computed(
   () => routeProjectParams.value.organization || getRouteParam(route.params.organization),
 );
-const routeProject = computed(
-  () => routeProjectParams.value.project || getRouteParam(route.params.project),
+const routeProject = computed(() =>
+  normalizeRouteProjectName(
+    routeProjectParams.value.project || getRouteParam(route.params.project),
+  ),
 );
 const routeTeam = computed(() => getRouteParam(route.query.team));
 const routeSprint = computed(() => getRouteParam(route.query.sprint));

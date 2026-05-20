@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildProjectSectionPath, buildProjectStateQuery, getProjectSectionFromPath, getRouteProjectParams, isKnownAssetRequestPath } from './navigation'
+import { buildProjectSectionPath, buildProjectStateQuery, getProjectSectionFromPath, getRouteProjectParams, isKnownAssetRequestPath, normalizeRouteProjectName } from './navigation'
 
 describe('project navigation routes', () => {
   it('uses a standalone sprint task page instead of rendering tasks inside the sidebar route', () => {
@@ -13,11 +13,16 @@ describe('project navigation routes', () => {
     expect(getRouteProjectParams('/installHook.js.map')).toEqual({ organization: '', project: '' })
   })
 
-  it('extracts project params from Nuxt catch-all aliases when explicit route params are missing', () => {
+  it('extracts decoded project params from Nuxt catch-all aliases when explicit route params are missing', () => {
     expect(getRouteProjectParams('/KiriminAja2026/OPI%20Board/tasks')).toEqual({
       organization: 'KiriminAja2026',
-      project: 'OPI%20Board'
+      project: 'OPI Board'
     })
+  })
+
+  it('normalizes repeatedly encoded route project names before writing cookies or API query strings', () => {
+    expect(normalizeRouteProjectName('OPI%252525252520Board')).toBe('OPI Board')
+    expect(buildProjectSectionPath('KiriminAja2026', normalizeRouteProjectName('OPI%252525252520Board'), 'sprint-task')).toBe('/KiriminAja2026/OPI%20Board/sprint-task')
   })
 })
 

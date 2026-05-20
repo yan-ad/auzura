@@ -1,9 +1,27 @@
 import { getQuery } from 'h3'
 import { getAzureOrganizationFromQuery, listRecentWorkItems, type WorkItemListFilters, withAzureOrganization } from '../../../utils/azure-devops'
 
+function normalizeQueryString(value: string): string {
+  let normalized = value.trim()
+
+  for (let index = 0; index < 25; index += 1) {
+    try {
+      const decoded = decodeURIComponent(normalized)
+      if (decoded === normalized) break
+      normalized = decoded
+    } catch {
+      break
+    }
+  }
+
+  return normalized
+}
+
 function getStringQueryValue(value: unknown): string | undefined {
   const normalized = Array.isArray(value) ? value[0] : value
-  return typeof normalized === 'string' && normalized.trim() ? normalized.trim() : undefined
+  if (typeof normalized !== 'string') return undefined
+  const queryValue = normalizeQueryString(normalized)
+  return queryValue ? queryValue : undefined
 }
 
 function getStringArrayQueryValue(value: unknown): string[] | undefined {

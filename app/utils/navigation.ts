@@ -8,12 +8,32 @@ const PROJECT_SECTION_SEGMENTS = new Set<ProjectSection>([
 ]);
 const IGNORED_ASSET_SEGMENTS = new Set(["installHook.js.map"]);
 
+function safelyDecodePathSegment(segment: string): string {
+  let value = segment.trim();
+
+  for (let index = 0; index < 25; index += 1) {
+    try {
+      const decoded = decodeURIComponent(value);
+      if (decoded === value) break;
+      value = decoded;
+    } catch {
+      break;
+    }
+  }
+
+  return value;
+}
+
 function getPathSegments(path: string): string[] {
   return path
     .split("?")[0]
     ?.split("/")
-    .map((segment) => segment.trim())
+    .map(safelyDecodePathSegment)
     .filter(Boolean) ?? [];
+}
+
+export function normalizeRouteProjectName(project: string): string {
+  return safelyDecodePathSegment(project);
 }
 
 export function isKnownAssetRequestPath(path: string): boolean {
