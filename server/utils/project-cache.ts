@@ -1,7 +1,11 @@
-import { attachDatabasePool } from "@vercel/functions";
 import type { H3Event } from "h3";
-import { MongoClient, type Collection, type Db } from "mongodb";
+import type { Collection } from "mongodb";
 import type { AzureProject } from "../../app/types/azure-devops";
+import {
+  getMongoDatabase,
+  tryMongoCache,
+  tryWriteMongoCache,
+} from "./cache-storage";
 
 export type CacheOwner = {
   key: string;
@@ -17,54 +21,8 @@ type ProjectCacheDocument = {
   updatedAt: Date;
 };
 
-let mongoClient: MongoClient | undefined;
-let mongoClientPromise: Promise<MongoClient> | undefined;
-
-function getRuntimeConfig() {
-  const runtimeGlobal = globalThis as typeof globalThis & {
-    useRuntimeConfig?: () => { mongodbUri?: unknown; mongodbDb?: unknown };
-  };
-  return typeof runtimeGlobal.useRuntimeConfig === "function" ?
-      runtimeGlobal.useRuntimeConfig()
-    : {};
-}
-
-function getMongoUri(): string {
-  const config = getRuntimeConfig();
-  const uri = String(config.mongodbUri || process.env.MONGODB_URI || "").trim();
-
-  if (!uri) {
-    throw new Error("MONGODB_URI is required for project cache.");
-  }
-
-  return uri;
-}
-
-function getDatabaseName(): string {
-  const config = getRuntimeConfig();
-  return (
-    String(config.mongodbDb || process.env.MONGODB_DB || "auzura").trim() ||
-    "auzura"
-  );
-}
-
-function getMongoClient(): Promise<MongoClient> {
-  if (mongoClientPromise) return mongoClientPromise;
-
-  mongoClient = new MongoClient(getMongoUri());
-  attachDatabasePool(mongoClient);
-  mongoClientPromise = mongoClient.connect();
-
-  return mongoClientPromise;
-}
-
-async function getDatabase(): Promise<Db> {
-  const client = await getMongoClient();
-  return client.db(getDatabaseName());
-}
-
 async function getCollection(): Promise<Collection<ProjectCacheDocument>> {
-  const db = await getDatabase();
+  const db = await getMongoDatabase();
   const collection = db.collection<ProjectCacheDocument>("project_cache");
 
   await collection.updateMany(
@@ -132,9 +90,12 @@ export async function getCachedProjects(
   organization: string,
 ): Promise<AzureProject[]> {
   if (!userKey || !organization) return [];
-  const collection = await getCollection();
-  const document = await collection.findOne({ userKey, organization });
-  return document?.projects ?? [];
+
+  return await tryMongoCache(async () => {
+    const collection = await getCollection();
+    const document = await collection.findOne({ userKey, organization });
+    return document?.projects ?? [];
+  }, []);
 }
 
 export async function setCachedProjects(
@@ -143,20 +104,23 @@ export async function setCachedProjects(
   projects: AzureProject[],
 ): Promise<void> {
   if (!owner.key || !organization) return;
-  const collection = await getCollection();
-  await collection.updateOne(
-    { userKey: owner.key, organization },
-    {
-      $set: {
-        userKey: owner.key,
-        owner,
-        organization,
-        projects,
-        updatedAt: new Date(),
+
+  await tryWriteMongoCache(async () => {
+    const collection = await getCollection();
+    await collection.updateOne(
+      { userKey: owner.key, organization },
+      {
+        $set: {
+          userKey: owner.key,
+          owner,
+          organization,
+          projects,
+          updatedAt: new Date(),
+        },
       },
-    },
-    { upsert: true },
-  );
+      { upsert: true },
+    );
+  });
 }
 
 export async function purgeCachedProjects(
@@ -165,11 +129,13 @@ export async function purgeCachedProjects(
 ): Promise<number> {
   if (!userKey) return 0;
 
-  const collection = await getCollection();
-  const result = await collection.deleteMany({
-    userKey,
-    ...(organization ? { organization } : {}),
-  });
+  return await tryMongoCache(async () => {
+    const collection = await getCollection();
+    const result = await collection.deleteMany({
+      userKey,
+      ...(organization ? { organization } : {}),
+    });
 
-  return result.deletedCount;
+    return result.deletedCount;
+  }, 0);
 }
