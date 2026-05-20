@@ -86,10 +86,13 @@ export type AzureGraphUserResponse = {
   };
 };
 
-type AzureGraphUsersResponse = {
-  value?: AzureGraphUserResponse[];
-  members?: AzureGraphUserResponse[];
+type AzureCollectionResponse<T> = {
+  value?: T[];
+  members?: T[];
+  workItems?: T[];
 };
+
+type AzureGraphUsersResponse = AzureCollectionResponse<AzureGraphUserResponse>;
 
 type AzureTeamResponse = {
   id: string;
@@ -439,12 +442,19 @@ export function normalizeUser(
   };
 }
 
+export function getAzureCollectionItems<T>(
+  response?: AzureCollectionResponse<T>,
+): T[] {
+  if (Array.isArray(response?.value)) return response.value;
+  if (Array.isArray(response?.members)) return response.members;
+  if (Array.isArray(response?.workItems)) return response.workItems;
+  return [];
+}
+
 export function getGraphUsersFromResponse(
   response?: AzureGraphUsersResponse,
 ): AzureGraphUserResponse[] {
-  if (Array.isArray(response?.value)) return response.value;
-  if (Array.isArray(response?.members)) return response.members;
-  return [];
+  return getAzureCollectionItems(response);
 }
 
 export function normalizeWorkItem(item: AzureWorkItemResponse): AzureWorkItem {
@@ -615,7 +625,7 @@ async function fetchWorkItemsByIds(
       },
     );
 
-    items.push(...batch.value.map(normalizeWorkItem));
+    items.push(...getAzureCollectionItems(batch).map(normalizeWorkItem));
   }
 
   return items;
@@ -649,10 +659,11 @@ export async function listOrganizations(): Promise<
     return [];
   }
 
-  const response = await azureFetch<{ value: AzureAccountResponse[] }>(
+  const response = await azureFetch<AzureCollectionResponse<AzureAccountResponse>>(
     `https://app.vssps.visualstudio.com/_apis/accounts?memberId=${encodeURIComponent(memberId)}&api-version=7.1-preview.1`,
   );
 
+  const accounts = getAzureCollectionItems(response);
   const seen = new Set<string>();
   const organizations: Array<{
     id: string;
@@ -661,7 +672,7 @@ export async function listOrganizations(): Promise<
     url?: string;
   }> = [];
 
-  for (const account of response.value) {
+  for (const account of accounts) {
     const slug = getOrganizationSlug(account);
     if (!slug || seen.has(slug)) continue;
     seen.add(slug);
@@ -680,14 +691,14 @@ export async function listOrganizations(): Promise<
 
 export async function listProjects(): Promise<AzureProject[]> {
   const { organization } = getAzureConfig();
-  const response = await azureFetch<{ value: AzureProjectResponse[] }>(
+  const response = await azureFetch<AzureCollectionResponse<AzureProjectResponse>>(
     getOrganizationUrl(
       organization,
       `projects?api-version=${API_VERSION}&stateFilter=wellFormed`,
     ),
   );
 
-  return response.value.map(normalizeProject);
+  return getAzureCollectionItems(response).map(normalizeProject);
 }
 
 export async function listUsers(): Promise<AzureUser[]> {
@@ -746,11 +757,11 @@ export async function listProjectTeams(
     return [];
   }
 
-  const response = await azureFetch<{ value: AzureTeamResponse[] }>(
+  const response = await azureFetch<AzureCollectionResponse<AzureTeamResponse>>(
     buildProjectTeamsUrl(organization, projectMatch.id),
   );
 
-  return response.value.map((team) => ({
+  return getAzureCollectionItems(response).map((team) => ({
     id: team.id,
     name: team.name,
   }));
@@ -768,11 +779,11 @@ export async function listTeamSprints(
     return [];
   }
 
-  const response = await azureFetch<{ value: AzureTeamIterationResponse[] }>(
+  const response = await azureFetch<AzureCollectionResponse<AzureTeamIterationResponse>>(
     `https://dev.azure.com/${organization}/${encodeURIComponent(project)}/${encodeURIComponent(team)}/_apis/work/teamsettings/iterations?api-version=${API_VERSION}`,
   );
 
-  return response.value.map((iteration) => ({
+  return getAzureCollectionItems(response).map((iteration) => ({
     id: iteration.id,
     name: iteration.name,
     path: iteration.path || iteration.name,
@@ -812,9 +823,10 @@ export async function listSprintPbis(
     },
   );
 
+  const workItemRefs = getAzureCollectionItems(wiql);
   const items = await fetchWorkItemsByIds(
     project,
-    wiql.workItems.map((item) => item.id),
+    workItemRefs.map((item) => item.id),
     { includeRelations: true },
   );
   const relationIds = Array.from(
@@ -933,9 +945,10 @@ export async function listRecentWorkItems(
     needsLocalFilter ? 500 : (
       Math.max((filters.offset || 0) + (filters.limit || 50), 50)
     );
+  const workItemRefs = getAzureCollectionItems(wiql);
   const items = await fetchWorkItemsByIds(
     project,
-    wiql.workItems.slice(0, fetchLimit).map((item) => item.id),
+    workItemRefs.slice(0, fetchLimit).map((item) => item.id),
   );
   const owner = await getSessionCacheOwnerFromEvent(
     azureEventStorage.getStore(),
