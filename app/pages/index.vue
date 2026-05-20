@@ -1095,22 +1095,22 @@ async function addOrganization() {
                 </div>
 
                 <div class="grid gap-3 lg:grid-cols-12">
-                  <UFormField label="Search" class="lg:col-span-3">
+                  <UFormField label="Search Issues" class="lg:col-span-4">
                     <UInput
                       v-model="searchKeyword"
                       icon="i-lucide-search"
-                      placeholder="Keyword atau #383"
+                      placeholder="Search by key, title, assignee"
                     />
                   </UFormField>
 
-                  <UFormField label="Per page" class="lg:col-span-2">
+                  <UFormField label="Show" class="lg:col-span-2">
                     <USelect
                       v-model="itemsPerPage"
                       :items="itemsPerPageOptions"
                     />
                   </UFormField>
 
-                  <UFormField label="Assigned to" class="lg:col-span-3">
+                  <UFormField label="Assignee" class="lg:col-span-3">
                     <div class="flex gap-2">
                       <USelect
                         v-model="assignedFilterMode"
@@ -1130,7 +1130,7 @@ async function addOrganization() {
                     </div>
                   </UFormField>
 
-                  <UFormField label="Created by" class="lg:col-span-4">
+                  <UFormField label="Reporter" class="lg:col-span-3">
                     <div class="flex gap-2">
                       <USelect
                         v-model="createdFilterMode"
@@ -1153,84 +1153,82 @@ async function addOrganization() {
               </div>
             </template>
 
-            <div class="overflow-x-auto">
-              <table class="w-full min-w-[980px] text-left text-sm">
-                <thead
-                  class="border-b border-default text-xs uppercase tracking-wide text-muted"
+            <div class="overflow-hidden rounded-lg border border-default">
+              <div
+                class="grid grid-cols-[112px_minmax(300px,1fr)_140px_170px_170px_150px_88px] items-center gap-2 border-b border-default bg-elevated/40 px-3 py-2 text-[11px] font-medium uppercase text-muted"
+              >
+                <span>Issue Key</span>
+                <span>Summary</span>
+                <span>Type</span>
+                <span>Assignee</span>
+                <span>Reporter</span>
+                <span>Updated</span>
+                <span class="text-right">Open</span>
+              </div>
+
+              <div v-if="boardPending" class="space-y-2 p-3">
+                <USkeleton v-for="index in 6" :key="index" class="h-12" />
+              </div>
+
+              <div v-else class="divide-y divide-default">
+                <div
+                  v-for="item in boardItems"
+                  :key="item.id"
+                  class="grid grid-cols-[112px_minmax(300px,1fr)_140px_170px_170px_150px_88px] items-center gap-2 px-3 py-2 hover:bg-elevated/40"
                 >
-                  <tr>
-                    <th class="px-3 py-3">Key</th>
-                    <th class="px-3 py-3">Title</th>
-                    <th class="px-3 py-3">Type</th>
-                    <th class="px-3 py-3">Assigned</th>
-                    <th class="px-3 py-3">Created</th>
-                    <th class="px-3 py-3">Updated</th>
-                    <th class="px-3 py-3">Status</th>
-                    <th class="px-3 py-3 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody class="divide-y divide-default">
-                  <tr v-if="boardPending" v-for="index in 5" :key="index">
-                    <td colspan="8" class="px-3 py-4">
-                      <USkeleton class="h-8" />
-                    </td>
-                  </tr>
-                  <tr
-                    v-for="item in boardItems"
-                    v-else
-                    :key="item.id"
-                    class="hover:bg-elevated/50"
+                  <button
+                    class="truncate text-left text-xs font-medium text-primary hover:underline"
+                    @click="openDetail(item)"
                   >
-                    <td class="whitespace-nowrap px-3 py-4 text-muted">
-                      #{{ item.id }}
-                    </td>
-                    <td class="px-3 py-4">
-                      <button
-                        class="max-w-md truncate text-left font-medium text-highlighted hover:text-primary"
-                        @click="openDetail(item)"
-                      >
-                        {{ item.title }}
-                      </button>
-                      <p class="mt-1 truncate text-xs text-muted">
-                        {{ item.areaPath || "No area" }}
-                      </p>
-                    </td>
-                    <td class="whitespace-nowrap px-3 py-4">
-                      <UBadge color="neutral" variant="soft">{{
-                        item.type
-                      }}</UBadge>
-                    </td>
-                    <td class="max-w-48 truncate px-3 py-4 text-toned">
-                      {{ item.assignedTo || "Unassigned" }}
-                    </td>
-                    <td class="max-w-48 truncate px-3 py-4 text-toned">
-                      {{ item.createdBy || "—" }}
-                    </td>
-                    <td class="whitespace-nowrap px-3 py-4 text-muted">
-                      {{ formatDate(item.changedDate) }}
-                    </td>
-                    <td class="min-w-40 px-3 py-4">
-                      <USelectMenu
-                        :model-value="item.state"
-                        :items="states"
-                        size="xs"
-                        @update:model-value="moveItem(item, String($event))"
-                      />
-                    </td>
-                    <td class="whitespace-nowrap px-3 py-4 text-right">
-                      <UButton
-                        icon="i-lucide-panel-right-open"
-                        color="neutral"
-                        variant="ghost"
-                        size="xs"
-                        @click="openDetail(item)"
-                      >
-                        Detail
-                      </UButton>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+                    AZ-{{ item.id }}
+                  </button>
+
+                  <div class="min-w-0">
+                    <button
+                      class="w-full truncate text-left text-sm font-medium text-highlighted hover:text-primary"
+                      @click="openDetail(item)"
+                    >
+                      {{ item.title }}
+                    </button>
+                    <p class="truncate text-xs text-muted">
+                      {{ item.areaPath || item.iterationPath || "No area / iteration" }}
+                    </p>
+                  </div>
+
+                  <UBadge color="neutral" variant="soft" class="w-fit">
+                    {{ item.type }}
+                  </UBadge>
+
+                  <p class="truncate text-sm text-toned">
+                    {{ item.assignedTo || "Unassigned" }}
+                  </p>
+
+                  <p class="truncate text-sm text-toned">
+                    {{ item.createdBy || "—" }}
+                  </p>
+
+                  <div class="space-y-1">
+                    <p class="text-xs text-muted">{{ formatDate(item.changedDate) }}</p>
+                    <USelectMenu
+                      :model-value="item.state"
+                      :items="states"
+                      size="xs"
+                      @update:model-value="moveItem(item, String($event))"
+                    />
+                  </div>
+
+                  <div class="flex justify-end">
+                    <UButton
+                      icon="i-lucide-panel-right-open"
+                      color="neutral"
+                      variant="ghost"
+                      size="xs"
+                      square
+                      @click="openDetail(item)"
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div
