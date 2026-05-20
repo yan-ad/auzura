@@ -70,6 +70,21 @@ export function buildWorkItemsWiql(options: { excludeRemoved?: boolean } = {}): 
         `
 }
 
+export type WorkItemListFilters = {
+  assignedTo?: string
+  createdBy?: string
+  keyword?: string
+  offset?: number
+  limit?: number
+}
+
+export type WorkItemListResult = {
+  items: AzureWorkItem[]
+  total: number
+  offset: number
+  limit: number
+}
+
 function normalizeIdentityValue(value: string): string {
   return value.trim().toLowerCase()
 }
@@ -94,18 +109,57 @@ function getIdentitySearchTokens(value: string): string[] {
   return Array.from(tokens).filter((token) => token.length >= 3)
 }
 
-export function isAssignedToCandidate(item: Pick<AzureWorkItem, 'assignedTo' | 'assignedToUniqueName'>, candidates: string[]): boolean {
-  const assignees = [item.assignedToUniqueName, item.assignedTo]
-    .map((value) => value?.trim())
-    .filter((value): value is string => Boolean(value))
-  const normalizedAssignees = assignees.map(normalizeIdentityValue)
+function identityMatches(value: string | undefined, candidates: string[]): boolean {
+  if (!value?.trim()) return false
+
+  const normalizedValue = normalizeIdentityValue(value)
   const candidateTokens = candidates.flatMap(getIdentitySearchTokens)
 
-  return normalizedAssignees.some((assignee) => candidateTokens.some((candidate) => {
-    if (assignee === candidate) return true
-    if (assignee.includes(candidate)) return true
-    return candidate.includes(assignee)
-  }))
+  return candidateTokens.some((candidate) => {
+    if (normalizedValue === candidate) return true
+    if (normalizedValue.includes(candidate)) return true
+    return candidate.includes(normalizedValue)
+  })
+}
+
+export function isAssignedToCandidate(item: Pick<AzureWorkItem, 'assignedTo' | 'assignedToUniqueName'>, candidates: string[]): boolean {
+  return [item.assignedToUniqueName, item.assignedTo].some((assignee) => identityMatches(assignee, candidates))
+}
+
+export function isCreatedByCandidate(item: Pick<AzureWorkItem, 'createdBy'>, candidates: string[]): boolean {
+  return identityMatches(item.createdBy, candidates)
+}
+
+function workItemMatchesKeyword(item: AzureWorkItem, keyword: string): boolean {
+  const normalizedKeyword = keyword.trim().toLowerCase().replace(/^#/, '')
+
+  if (!normalizedKeyword) return true
+
+  return [
+    String(item.id),
+    item.title,
+    item.type,
+    item.state,
+    item.assignedTo,
+    item.assignedToUniqueName,
+    item.createdBy,
+    item.areaPath,
+    item.iterationPath,
+    ...item.tags
+  ].some((value) => value?.toLowerCase().includes(normalizedKeyword))
+}
+
+function paginateWorkItems(items: AzureWorkItem[], filters: WorkItemListFilters): WorkItemListResult {
+  const total = items.length
+  const limit = Math.min(Math.max(Number(filters.limit) || 25, 1), 100)
+  const offset = Math.max(Number(filters.offset) || 0, 0)
+
+  return {
+    items: items.slice(offset, offset + limit),
+    total,
+    offset,
+    limit
+  }
 }
 
 function getAzureErrorMessage(error: unknown): string {
@@ -355,34 +409,42 @@ export async function listProjects(): Promise<AzureProject[]> {
   return response.value.map(normalizeProject)
 }
 
-export async function listRecentWorkItems(projectInput?: string): Promise<AzureWorkItem[]> {
-  const project = assertProject(projectInput)
-  const { organization } = getAzureConfig()
-  const wiql = await azureFetch<{ workItems: Array<{ id: number }> }>(
-    getProjectUrl(organization, project, `wit/wiql?api-version=${API_VERSION}`),
-    {
-      method: 'POST',
-      body: {
-        query: buildWorkItemsWiql()
-      }
-    }
-  )
-
-  return await fetchWorkItemsByIds(project, wiql.workItems.slice(0, 25).map((item) => item.id))
+function getCurrentUserCandidates(currentUser: { displayName?: string, email?: string }): string[] {
+  return [currentUser.email, currentUser.displayName]
+    .map((value) => value?.trim())
+    .filter((value): value is string => Boolean(value))
 }
 
-export async function listAssignedToMeWorkItems(projectInput?: string): Promise<AzureWorkItem[]> {
+function applyWorkItemFilters(items: AzureWorkItem[], filters: WorkItemListFilters, currentUserCandidates: string[]): AzureWorkItem[] {
+  let filteredItems = items
+
+  if (filters.assignedTo) {
+    const candidates = filters.assignedTo === 'me' ? currentUserCandidates : [filters.assignedTo]
+    filteredItems = filteredItems.filter((item) => isAssignedToCandidate(item, candidates))
+  }
+
+  if (filters.createdBy) {
+    const candidates = filters.createdBy === 'me' ? currentUserCandidates : [filters.createdBy]
+    filteredItems = filteredItems.filter((item) => isCreatedByCandidate(item, candidates))
+  }
+
+  if (filters.keyword) {
+    filteredItems = filteredItems.filter((item) => workItemMatchesKeyword(item, filters.keyword || ''))
+  }
+
+  return filteredItems
+}
+
+export async function listRecentWorkItems(projectInput?: string, filters: WorkItemListFilters = {}): Promise<WorkItemListResult> {
   const project = assertProject(projectInput)
   const { organization } = getAzureConfig()
   const currentUser = await getCurrentUser()
-  const candidates = [currentUser.email, currentUser.displayName]
-    .map((value) => value?.trim())
-    .filter((value): value is string => Boolean(value))
+  const currentUserCandidates = getCurrentUserCandidates(currentUser)
 
-  if (!candidates.length) {
+  if ((filters.assignedTo === 'me' || filters.createdBy === 'me') && !currentUserCandidates.length) {
     throw createError({
       statusCode: 500,
-      statusMessage: 'Could not determine the current Azure DevOps user for assigned-to-me filtering.'
+      statusMessage: 'Could not determine the current Azure DevOps user for me filtering.'
     })
   }
 
@@ -390,12 +452,22 @@ export async function listAssignedToMeWorkItems(projectInput?: string): Promise<
     getProjectUrl(organization, project, `wit/wiql?api-version=${API_VERSION}`),
     {
       method: 'POST',
-      body: { query: buildWorkItemsWiql({ excludeRemoved: true }) }
+      body: {
+        query: buildWorkItemsWiql({ excludeRemoved: true })
+      }
     }
   )
 
-  const items = await fetchWorkItemsByIds(project, wiql.workItems.slice(0, 500).map((item) => item.id))
-  return items.filter((item) => isAssignedToCandidate(item, candidates)).slice(0, 100)
+  const needsLocalFilter = Boolean(filters.assignedTo || filters.createdBy || filters.keyword)
+  const fetchLimit = needsLocalFilter ? 500 : Math.max((filters.offset || 0) + (filters.limit || 25), 25)
+  const items = await fetchWorkItemsByIds(project, wiql.workItems.slice(0, fetchLimit).map((item) => item.id))
+  const filteredItems = applyWorkItemFilters(items, filters, currentUserCandidates)
+
+  return paginateWorkItems(filteredItems, filters)
+}
+
+export async function listAssignedToMeWorkItems(projectInput?: string, filters: Omit<WorkItemListFilters, 'assignedTo'> = {}): Promise<WorkItemListResult> {
+  return await listRecentWorkItems(projectInput, { ...filters, assignedTo: 'me' })
 }
 
 export async function getWorkItem(projectInput: string | undefined, id: number): Promise<AzureWorkItem> {

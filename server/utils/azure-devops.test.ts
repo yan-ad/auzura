@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildWorkItemsWiql, chunkWorkItemIds, isAssignedToCandidate } from './azure-devops'
+import { buildWorkItemsWiql, chunkWorkItemIds, isAssignedToCandidate, isCreatedByCandidate } from './azure-devops'
 
 describe('buildWorkItemsWiql', () => {
   it('uses Azure DevOps @project context instead of interpolating a project literal', () => {
@@ -32,5 +32,12 @@ describe('isAssignedToCandidate', () => {
     expect(isAssignedToCandidate({ assignedTo: 'Yan Aditia <yan@example.com>' }, ['yan@example.com'])).toBe(true)
     expect(isAssignedToCandidate({ assignedTo: 'yan aditia' }, ['yan.aditia@example.com'])).toBe(true)
     expect(isAssignedToCandidate({ assignedTo: 'Other User' }, ['Yan Aditia', 'yan@example.com'])).toBe(false)
+  })
+})
+
+describe('isCreatedByCandidate', () => {
+  it('matches normalized creator display name against selected member candidates', () => {
+    expect(isCreatedByCandidate({ createdBy: 'Yan Aditia' }, ['yan.aditia@example.com'])).toBe(true)
+    expect(isCreatedByCandidate({ createdBy: 'Other User' }, ['Yan Aditia'])).toBe(false)
   })
 })

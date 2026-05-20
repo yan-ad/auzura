@@ -7,10 +7,18 @@ const states = ['New', 'Active', 'Resolved', 'Closed']
 const workItemTypes = ['User Story', 'Task', 'Bug']
 const selectedOrganization = useCookie<string>('auzura:organization', { default: () => '' })
 const selectedProject = useCookie<string>('auzura:selected-project', { default: () => '' })
-const selectedView = ref<'assigned' | 'board'>('assigned')
+const selectedView = ref<'all'>('all')
 const selectedItemId = ref<number | null>(null)
 const isDetailOpen = ref(false)
 const { loggedIn, user, fetch: refreshSession } = useUserSession()
+const filterModes = ['me', 'member']
+const listPage = ref(1)
+const itemsPerPage = 25
+const searchKeyword = ref('')
+const assignedFilterMode = ref<'me' | 'member'>('me')
+const assignedMember = ref('')
+const createdFilterMode = ref<'me' | 'member'>('me')
+const createdMember = ref('')
 
 const form = reactive({
   title: '',
@@ -62,18 +70,37 @@ function withOrganizationQuery(path: string) {
   return `${path}${organizationQuery.value ? `&${organizationQuery.value}` : ''}`
 }
 
-const boardUrl = computed(() => withOrganizationQuery(`/api/azure/work-items?project=${encodeURIComponent(activeProject.value)}`))
-const assignedUrl = computed(() => withOrganizationQuery(`/api/azure/work-items/assigned?project=${encodeURIComponent(activeProject.value)}`))
+function appendQuery(path: string, params: Record<string, string | number | undefined>) {
+  const query = Object.entries(params)
+    .filter(([, value]) => value !== undefined && String(value).trim() !== '')
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`)
+    .join('&')
+
+  return query ? `${path}&${query}` : path
+}
+
+const assignedFilterValue = computed(() => assignedFilterMode.value === 'me' ? 'me' : assignedMember.value.trim())
+const createdFilterValue = computed(() => createdFilterMode.value === 'me' ? 'me' : createdMember.value.trim())
+
+const boardUrl = computed(() => withOrganizationQuery(appendQuery(`/api/azure/work-items?project=${encodeURIComponent(activeProject.value)}`, {
+  assignedTo: assignedFilterValue.value,
+  createdBy: createdFilterValue.value,
+  keyword: searchKeyword.value.trim(),
+  offset: (listPage.value - 1) * itemsPerPage,
+  limit: itemsPerPage
+})))
 const detailUrl = computed(() => selectedItemId.value && activeProject.value
   ? withOrganizationQuery(`/api/azure/work-items/${selectedItemId.value}?project=${encodeURIComponent(activeProject.value)}`)
   : null)
 
-const { data: boardData, pending: boardPending, error: boardError, refresh: refreshBoard } = await useFetch<{ items: AzureWorkItem[] }>(boardUrl, {
-  immediate: false,
-  watch: false
-})
+type WorkItemListResponse = {
+  items: AzureWorkItem[]
+  total: number
+  offset: number
+  limit: number
+}
 
-const { data: assignedData, pending: assignedPending, error: assignedError, refresh: refreshAssigned } = await useFetch<{ items: AzureWorkItem[] }>(assignedUrl, {
+const { data: boardData, pending: boardPending, error: boardError, refresh: refreshBoard } = await useFetch<WorkItemListResponse>(boardUrl, {
   immediate: false,
   watch: false
 })
@@ -85,23 +112,39 @@ const { data: detailData, pending: detailPending, refresh: refreshDetail } = awa
 
 watch([activeProject, canLoadAzure], async ([project, isLoggedIn]) => {
   if (project && isLoggedIn) {
-    await Promise.all([refreshBoard(), refreshAssigned()])
+    await refreshBoard()
   }
 }, { immediate: true })
 
-const assignedItems = computed(() => assignedData.value?.items ?? [])
-const boardItems = computed(() => boardData.value?.items ?? [])
-const selectedItem = computed(() => detailData.value?.item || assignedItems.value.find((item) => item.id === selectedItemId.value) || boardItems.value.find((item) => item.id === selectedItemId.value))
-const busy = computed(() => boardPending.value || assignedPending.value || projectsPending.value)
+watch([searchKeyword, assignedFilterMode, assignedMember, createdFilterMode, createdMember, activeProject], () => {
+  listPage.value = 1
+})
 
-const columns = computed(() => states.map((state) => ({
-  state,
-  items: boardItems.value.filter((item) => item.state === state)
-})))
+watch([boardUrl, canLoadAzure], async ([, isLoggedIn]) => {
+  if (activeProject.value && isLoggedIn) {
+    await refreshBoard()
+  }
+})
+
+const boardItems = computed(() => boardData.value?.items ?? [])
+const listTotal = computed(() => boardData.value?.total ?? 0)
+const listPageCount = computed(() => Math.max(Math.ceil(listTotal.value / itemsPerPage), 1))
+const canGoPrevious = computed(() => listPage.value > 1)
+const canGoNext = computed(() => listPage.value < listPageCount.value)
+const selectedItem = computed(() => detailData.value?.item || boardItems.value.find((item) => item.id === selectedItemId.value))
+const busy = computed(() => boardPending.value || projectsPending.value)
+
+function previousPage() {
+  if (canGoPrevious.value) listPage.value -= 1
+}
+
+function nextPage() {
+  if (canGoNext.value) listPage.value += 1
+}
 
 const assignedByState = computed(() => states.map((state) => ({
   label: state,
-  count: assignedItems.value.filter((item) => item.state === state).length
+  count: boardItems.value.filter((item) => item.state === state).length
 })))
 
 const dashboardStats = computed<Array<{
@@ -110,13 +153,13 @@ const dashboardStats = computed<Array<{
   value: string | number
   tone: 'primary' | 'secondary' | 'success' | 'info' | 'warning' | 'error' | 'neutral'
 }>>(() => [{
-  title: 'Assigned to me',
-  icon: 'i-lucide-list-checks',
-  value: assignedItems.value.length,
+  title: 'All Task',
+  icon: 'i-lucide-list-filter',
+  value: listTotal.value,
   tone: 'primary'
 }, {
-  title: 'Recent board items',
-  icon: 'i-lucide-kanban',
+  title: 'This page',
+  icon: 'i-lucide-list-checks',
   value: boardItems.value.length,
   tone: 'info'
 }, {
@@ -132,17 +175,11 @@ const dashboardStats = computed<Array<{
 }])
 
 const viewNavigation = computed<NavigationMenuItem[][]>(() => [[{
-  label: 'Assigned to me',
-  icon: 'i-lucide-list-checks',
-  badge: String(assignedItems.value.length),
-  active: selectedView.value === 'assigned',
-  onSelect: () => { selectedView.value = 'assigned' }
-}, {
-  label: 'Kanban board',
-  icon: 'i-lucide-kanban',
-  badge: String(boardItems.value.length),
-  active: selectedView.value === 'board',
-  onSelect: () => { selectedView.value = 'board' }
+  label: 'All Task',
+  icon: 'i-lucide-list-filter',
+  badge: String(listTotal.value),
+  active: selectedView.value === 'all',
+  onSelect: () => { selectedView.value = 'all' }
 }]])
 
 
@@ -165,7 +202,7 @@ function stateColor(state?: string) {
 
 async function refreshCurrentView() {
   if (!canLoadAzure.value || !activeProject.value) return
-  await Promise.all([refreshBoard(), refreshAssigned()])
+  await refreshBoard()
   if (selectedItemId.value) {
     await refreshDetail()
   }
@@ -221,8 +258,6 @@ async function logoutFromMicrosoft() {
   projectsError.value = undefined
   boardData.value = undefined
   boardError.value = undefined
-  assignedData.value = undefined
-  assignedError.value = undefined
   detailData.value = undefined
   selectedProject.value = ''
   selectedItemId.value = null
@@ -358,20 +393,11 @@ async function openDetail(item: AzureWorkItem) {
           <template #left>
             <UButtonGroup>
               <UButton
-                icon="i-lucide-list-checks"
-                :color="selectedView === 'assigned' ? 'primary' : 'neutral'"
-                :variant="selectedView === 'assigned' ? 'subtle' : 'ghost'"
-                @click="selectedView = 'assigned'"
+                icon="i-lucide-list-filter"
+                color="primary"
+                variant="subtle"
               >
-                Assigned
-              </UButton>
-              <UButton
-                icon="i-lucide-kanban"
-                :color="selectedView === 'board' ? 'primary' : 'neutral'"
-                :variant="selectedView === 'board' ? 'subtle' : 'ghost'"
-                @click="selectedView = 'board'"
-              >
-                Kanban
+                All Task
               </UButton>
             </UButtonGroup>
           </template>
@@ -393,7 +419,7 @@ async function openDetail(item: AzureWorkItem) {
         <div class="space-y-6">
           <section class="space-y-3">
             <UBadge color="primary" variant="soft">
-              {{ selectedView === 'assigned' ? 'Personal watchlist' : 'Kanban view' }}
+              All Task
             </UBadge>
             <div class="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
               <div>
@@ -404,7 +430,7 @@ async function openDetail(item: AzureWorkItem) {
                   Dashboard buat pantau Azure Boards: assigned items, recent board, create work item, dan update status tanpa keluar app.
                 </p>
               </div>
-              <UButton icon="i-lucide-plus" :disabled="!activeProject" @click="selectedView = 'board'">
+              <UButton icon="i-lucide-plus" :disabled="!activeProject" @click="selectedView = 'all'">
                 New work item
               </UButton>
             </div>
@@ -429,12 +455,12 @@ async function openDetail(item: AzureWorkItem) {
           />
 
           <UAlert
-            v-if="assignedError || boardError"
+            v-if="boardError"
             color="error"
             variant="soft"
             icon="i-lucide-triangle-alert"
             title="Azure DevOps request failed"
-            :description="assignedError?.message || boardError?.message"
+            :description="boardError.message"
           />
 
           <UPageGrid class="gap-4 sm:grid-cols-2 lg:grid-cols-4 lg:gap-px">
@@ -463,37 +489,60 @@ async function openDetail(item: AzureWorkItem) {
             </UPageCard>
           </UPageGrid>
 
-          <UCard v-if="selectedView === 'assigned'" variant="subtle">
+          <UCard variant="subtle">
             <template #header>
-              <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <h2 class="text-lg font-semibold text-highlighted">Assigned to me</h2>
-                  <p class="text-sm text-muted">{{ assignedItems.length }} item in {{ activeProject || 'selected project' }}</p>
+              <div class="space-y-4">
+                <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <h2 class="text-lg font-semibold text-highlighted">All Task</h2>
+                    <p class="text-sm text-muted">{{ listTotal }} item match in {{ activeProject || 'selected project' }}</p>
+                  </div>
+                  <UButton icon="i-lucide-refresh-cw" :loading="boardPending" color="neutral" variant="subtle" @click="refreshBoard()">
+                    Refresh list
+                  </UButton>
                 </div>
-                <UButton icon="i-lucide-refresh-cw" :loading="assignedPending" color="neutral" variant="subtle" @click="refreshAssigned()">
-                  Refresh list
-                </UButton>
+
+                <div class="grid gap-3 lg:grid-cols-12">
+                  <UFormField label="Search" class="lg:col-span-4">
+                    <UInput v-model="searchKeyword" icon="i-lucide-search" placeholder="Keyword atau #383" />
+                  </UFormField>
+
+                  <UFormField label="Assigned to" class="lg:col-span-4">
+                    <div class="flex gap-2">
+                      <USelect v-model="assignedFilterMode" :items="filterModes" class="w-28" />
+                      <UInput v-model="assignedMember" icon="i-lucide-user" placeholder="member name/email" :disabled="assignedFilterMode === 'me'" />
+                    </div>
+                  </UFormField>
+
+                  <UFormField label="Created by" class="lg:col-span-4">
+                    <div class="flex gap-2">
+                      <USelect v-model="createdFilterMode" :items="filterModes" class="w-28" />
+                      <UInput v-model="createdMember" icon="i-lucide-user-pen" placeholder="member name/email" :disabled="createdFilterMode === 'me'" />
+                    </div>
+                  </UFormField>
+                </div>
               </div>
             </template>
 
             <div class="overflow-x-auto">
-              <table class="w-full min-w-[880px] text-left text-sm">
+              <table class="w-full min-w-[980px] text-left text-sm">
                 <thead class="border-b border-default text-xs uppercase tracking-wide text-muted">
                   <tr>
                     <th class="px-3 py-3">Key</th>
                     <th class="px-3 py-3">Title</th>
                     <th class="px-3 py-3">Type</th>
-                    <th class="px-3 py-3">Priority</th>
+                    <th class="px-3 py-3">Assigned</th>
+                    <th class="px-3 py-3">Created</th>
                     <th class="px-3 py-3">Updated</th>
                     <th class="px-3 py-3">Status</th>
                     <th class="px-3 py-3 text-right">Action</th>
                   </tr>
                 </thead>
                 <tbody class="divide-y divide-default">
-                  <tr v-if="assignedPending" v-for="index in 5" :key="index">
-                    <td colspan="7" class="px-3 py-4"><USkeleton class="h-8" /></td>
+                  <tr v-if="boardPending" v-for="index in 5" :key="index">
+                    <td colspan="8" class="px-3 py-4"><USkeleton class="h-8" /></td>
                   </tr>
-                  <tr v-for="item in assignedItems" v-else :key="item.id" class="hover:bg-elevated/50">
+                  <tr v-for="item in boardItems" v-else :key="item.id" class="hover:bg-elevated/50">
                     <td class="whitespace-nowrap px-3 py-4 text-muted">#{{ item.id }}</td>
                     <td class="px-3 py-4">
                       <button class="max-w-md truncate text-left font-medium text-highlighted hover:text-primary" @click="openDetail(item)">
@@ -502,7 +551,8 @@ async function openDetail(item: AzureWorkItem) {
                       <p class="mt-1 truncate text-xs text-muted">{{ item.areaPath || 'No area' }}</p>
                     </td>
                     <td class="whitespace-nowrap px-3 py-4"><UBadge color="neutral" variant="soft">{{ item.type }}</UBadge></td>
-                    <td class="whitespace-nowrap px-3 py-4 text-toned">{{ item.priority || '—' }}</td>
+                    <td class="max-w-48 truncate px-3 py-4 text-toned">{{ item.assignedTo || 'Unassigned' }}</td>
+                    <td class="max-w-48 truncate px-3 py-4 text-toned">{{ item.createdBy || '—' }}</td>
                     <td class="whitespace-nowrap px-3 py-4 text-muted">{{ formatDate(item.changedDate) }}</td>
                     <td class="min-w-40 px-3 py-4">
                       <USelectMenu :model-value="item.state" :items="states" size="xs" @update:model-value="moveItem(item, String($event))" />
@@ -517,12 +567,24 @@ async function openDetail(item: AzureWorkItem) {
               </table>
             </div>
 
-            <p v-if="!assignedPending && activeProject && !assignedItems.length" class="rounded-lg border border-dashed border-default p-8 text-center text-sm text-muted">
-              No assigned work items in this project.
+            <div class="mt-4 flex flex-col gap-3 border-t border-default pt-4 sm:flex-row sm:items-center sm:justify-between">
+              <p class="text-sm text-muted">Page {{ listPage }} of {{ listPageCount }} · {{ listTotal }} total</p>
+              <div class="flex gap-2">
+                <UButton icon="i-lucide-chevron-left" color="neutral" variant="subtle" :disabled="!canGoPrevious || boardPending" @click="previousPage()">
+                  Previous
+                </UButton>
+                <UButton trailing-icon="i-lucide-chevron-right" color="neutral" variant="subtle" :disabled="!canGoNext || boardPending" @click="nextPage()">
+                  Next
+                </UButton>
+              </div>
+            </div>
+
+            <p v-if="!boardPending && activeProject && !boardItems.length" class="mt-4 rounded-lg border border-dashed border-default p-8 text-center text-sm text-muted">
+              No work items match this filter.
             </p>
           </UCard>
 
-          <template v-else>
+          <template>
             <UCard variant="subtle">
               <template #header>
                 <div>
@@ -558,49 +620,6 @@ async function openDetail(item: AzureWorkItem) {
               </form>
             </UCard>
 
-            <section class="grid gap-4 xl:grid-cols-4">
-              <UCard
-                v-for="column in columns"
-                :key="column.state"
-                variant="subtle"
-                class="min-h-96"
-              >
-                <template #header>
-                  <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-2">
-                      <UBadge :color="stateColor(column.state)" variant="soft">{{ column.state }}</UBadge>
-                    </div>
-                    <UBadge color="neutral" variant="soft">{{ column.items.length }}</UBadge>
-                  </div>
-                </template>
-
-                <div class="space-y-3">
-                  <USkeleton v-if="boardPending" v-for="index in 3" :key="index" class="h-28" />
-
-                  <UPageCard v-for="item in column.items" v-else :key="item.id" variant="subtle" class="hover:ring-primary/30">
-                    <div class="space-y-3">
-                      <div class="flex items-start justify-between gap-3">
-                        <div class="min-w-0">
-                          <p class="text-xs text-muted">#{{ item.id }} · {{ item.type }}</p>
-                          <button class="line-clamp-2 text-left font-medium text-highlighted hover:text-primary" @click="openDetail(item)">
-                            {{ item.title }}
-                          </button>
-                        </div>
-                        <UBadge v-if="item.tags[0]" color="primary" variant="soft">{{ item.tags[0] }}</UBadge>
-                      </div>
-
-                      <p v-if="item.assignedTo" class="truncate text-xs text-muted">Assigned: {{ item.assignedTo }}</p>
-
-                      <USelectMenu :model-value="item.state" :items="states" size="xs" @update:model-value="moveItem(item, String($event))" />
-                    </div>
-                  </UPageCard>
-
-                  <p v-if="!boardPending && activeProject && !column.items.length" class="rounded-lg border border-dashed border-default p-6 text-center text-sm text-muted">
-                    No recent items.
-                  </p>
-                </div>
-              </UCard>
-            </section>
           </template>
         </div>
       </template>
