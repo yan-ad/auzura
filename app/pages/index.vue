@@ -536,6 +536,20 @@ const viewNavigation = computed<NavigationMenuItem[][]>(() => [
   ],
 ]);
 
+const userMenuItems = computed(() => [
+  {
+    label: loggedIn.value ? "Switch account" : "Sign in",
+    icon: "i-lucide-log-in",
+    onSelect: async () => await loginWithMicrosoft(),
+  },
+  {
+    label: "Sign out",
+    icon: "i-lucide-log-out",
+    disabled: !loggedIn.value,
+    onSelect: async () => await logoutFromMicrosoft(),
+  },
+]);
+
 function formatDate(value?: string) {
   if (!value) return "—";
   return new Intl.DateTimeFormat("en", {
@@ -759,40 +773,32 @@ async function addOrganization() {
           v-if="!collapsed"
           class="mt-6 space-y-4 rounded-xl border border-default bg-default/60 p-3"
         >
-          <div class="space-y-1">
-            <p class="text-xs font-medium uppercase tracking-wide text-muted">
-              Microsoft auth
-            </p>
-            <p class="truncate text-sm font-medium text-highlighted">
-              {{
-                loggedIn ?
-                  user?.displayName || user?.email || "Signed in"
-                : "Sign in required"
-              }}
-            </p>
-            <p class="text-xs text-muted">OAuth callback: auzura.vercel.app</p>
-          </div>
+          <div class="flex items-center justify-between gap-2">
+            <div class="min-w-0">
+              <p class="truncate text-sm font-medium text-highlighted">
+                {{
+                  loggedIn ?
+                    user?.displayName || user?.email || "Signed in"
+                  : "Sign in required"
+                }}
+              </p>
+              <p class="truncate text-xs text-muted">
+                {{ user?.email || "Microsoft account" }}
+              </p>
+            </div>
 
-          <div class="grid gap-2">
-            <UButton
-              icon="i-lucide-log-in"
-              color="primary"
-              variant="soft"
-              block
-              @click="loginWithMicrosoft"
+            <UDropdownMenu
+              :items="userMenuItems"
+              :content="{ align: 'end' }"
             >
-              {{ loggedIn ? "Switch account" : "Sign in" }}
-            </UButton>
-            <UButton
-              icon="i-lucide-log-out"
-              color="neutral"
-              variant="ghost"
-              block
-              :disabled="!loggedIn"
-              @click="logoutFromMicrosoft"
-            >
-              Sign out
-            </UButton>
+              <UButton
+                icon="i-lucide-ellipsis-vertical"
+                color="neutral"
+                variant="ghost"
+                square
+                aria-label="User menu"
+              />
+            </UDropdownMenu>
           </div>
         </div>
 
