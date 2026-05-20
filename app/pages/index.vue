@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { DropdownMenuItem, NavigationMenuItem } from "@nuxt/ui";
+import { azureDataKey } from "~/utils/azure-data-keys";
 import {
   buildProjectSectionPath,
   buildProjectStateQuery,
@@ -158,10 +159,17 @@ const {
   pending: projectsPending,
   error: projectsError,
   refresh: refreshProjects,
-} = await useFetch<{ projects: AzureProject[] }>(projectsUrl, {
-  immediate: false,
-  watch: false,
-});
+} = await useAsyncData<{ projects: AzureProject[] }>(
+  () =>
+    azureDataKey("projects", {
+      organization: activeOrganization.value,
+    }),
+  () => $fetch(projectsUrl.value),
+  {
+    immediate: false,
+    watch: [activeOrganization],
+  },
+);
 
 const projects = computed(() => projectsData.value?.projects ?? []);
 const projectOptions = computed(() =>
@@ -176,11 +184,11 @@ const canLoadAzure = computed(
 );
 
 const { data: organizationsData, refresh: refreshOrganizations } =
-  await useFetch<{ organizations: AzureOrganization[] }>(
-    "/api/azure/organizations",
+  await useAsyncData<{ organizations: AzureOrganization[] }>(
+    azureDataKey("organizations"),
+    () => $fetch("/api/azure/organizations"),
     {
       immediate: false,
-      watch: false,
     },
   );
 const organizations = computed(
@@ -274,10 +282,17 @@ const {
   pending: usersPending,
   error: usersError,
   refresh: refreshUsers,
-} = await useFetch<{ users: AzureUser[] }>(usersUrl, {
-  immediate: false,
-  watch: false,
-});
+} = await useAsyncData<{ users: AzureUser[] }>(
+  () =>
+    azureDataKey("users", {
+      organization: activeOrganization.value,
+    }),
+  () => $fetch(usersUrl.value),
+  {
+    immediate: false,
+    watch: [activeOrganization],
+  },
+);
 const users = computed(() => usersData.value?.users ?? []);
 const userOptions = computed(() =>
   users.value.map((azureUser) =>
@@ -296,10 +311,18 @@ const {
   data: teamsData,
   pending: teamsPending,
   refresh: refreshTeams,
-} = await useFetch<{ teams: AzureTeam[] }>(teamsUrl, {
-  immediate: false,
-  watch: false,
-});
+} = await useAsyncData<{ teams: AzureTeam[] }>(
+  () =>
+    azureDataKey("teams", {
+      organization: activeOrganization.value,
+      project: activeProject.value,
+    }),
+  () => $fetch(teamsUrl.value),
+  {
+    immediate: false,
+    watch: [activeOrganization, activeProject],
+  },
+);
 const teams = computed(() => teamsData.value?.teams ?? []);
 const teamOptions = computed(() => teams.value.map((team) => team.name));
 
@@ -312,10 +335,19 @@ const {
   data: sprintsData,
   pending: sprintsPending,
   refresh: refreshSprints,
-} = await useFetch<{ sprints: AzureSprint[] }>(sprintsUrl, {
-  immediate: false,
-  watch: false,
-});
+} = await useAsyncData<{ sprints: AzureSprint[] }>(
+  () =>
+    azureDataKey("sprints", {
+      organization: activeOrganization.value,
+      project: activeProject.value,
+      team: selectedTeam.value,
+    }),
+  () => $fetch(sprintsUrl.value),
+  {
+    immediate: false,
+    watch: [activeOrganization, activeProject, selectedTeam],
+  },
+);
 const sprints = computed(() => sprintsData.value?.sprints ?? []);
 const sprintOptions = computed(() =>
   sprints.value.map((sprint) => sprint.path),

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { DropdownMenuItem, NavigationMenuItem } from "@nuxt/ui";
 import type { AzureOrganization, AzureProject } from "~/types/azure-devops";
+import { azureDataKey } from "~/utils/azure-data-keys";
 
 import {
   buildProjectSectionRoute,
@@ -115,18 +116,26 @@ const {
   data: projectsData,
   pending: projectsPending,
   refresh: refreshProjects,
-} = await useFetch<{ projects: AzureProject[] }>(projectsUrl, {
-  immediate: false,
-  watch: false,
-});
+} = await useAsyncData<{ projects: AzureProject[] }>(
+  () =>
+    azureDataKey("projects", {
+      organization: activeOrganization.value,
+    }),
+  () => $fetch(projectsUrl.value),
+  {
+    immediate: false,
+    watch: [activeOrganization],
+  },
+);
 const projectOptions = computed(() =>
   (projectsData.value?.projects ?? []).map((project) => project.name),
 );
 
 const { data: organizationsData, refresh: refreshOrganizations } =
-  await useFetch<{ organizations: AzureOrganization[] }>(
-    "/api/azure/organizations",
-    { immediate: false, watch: false },
+  await useAsyncData<{ organizations: AzureOrganization[] }>(
+    azureDataKey("organizations"),
+    () => $fetch("/api/azure/organizations"),
+    { immediate: false },
   );
 const organizations = computed(
   () => organizationsData.value?.organizations ?? [],
@@ -156,15 +165,22 @@ const {
   data: sidebarTeamsData,
   pending: sidebarTeamsPending,
   refresh: refreshSidebarTeams,
-} = await useFetch<{
+} = await useAsyncData<{
   projects: Array<{
     project: string;
     teams: Array<{ id: string; name: string }>;
   }>;
-}>(sidebarTeamsUrl, {
-  immediate: false,
-  watch: false,
-});
+}>(
+  () =>
+    azureDataKey("sidebar-teams", {
+      organization: activeOrganization.value,
+    }),
+  () => $fetch(sidebarTeamsUrl.value),
+  {
+    immediate: false,
+    watch: [activeOrganization],
+  },
+);
 const sidebarTeamGroups = computed(
   () => sidebarTeamsData.value?.projects ?? [],
 );
