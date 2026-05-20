@@ -24,6 +24,9 @@ AZURE_TENANT_ID=your-tenant-id
 AZURE_CLIENT_ID=your-client-id
 AZURE_CLIENT_SECRET=your-client-secret
 AZURE_REDIRECT_URI=http://localhost:3000/api/auth/azure/callback
+MONGODB_URI=mongodb+srv://user:password@cluster.mongodb.net/auzura
+# Optional, defaults to auzura:
+# MONGODB_DB=auzura
 NUXT_SESSION_PASSWORD=password-with-at-least-32-characters
 
 # Optional server-only org alias:
@@ -34,6 +37,8 @@ For production/Vercel, set `AZURE_REDIRECT_URI` to `https://auzura.vercel.app/ap
 
 `NUXT_SESSION_PASSWORD` is required by `nuxt-auth-utils` to encrypt the session cookie. It must be at least 32 characters; otherwise `/api/_auth/session` fails with `Empty password` in production.
 
+`MONGODB_URI` is required for dashboard graphics. Auzura caches fetched work items in MongoDB Atlas and uses the cache to render state/type/assignee/freshness metrics.
+
 ## Why a server proxy?
 
 Azure DevOps OAuth tokens should never be exposed to unrelated services. The Nuxt server routes in `server/api/azure/**` own Azure API calls and expose a small app-specific API to the UI.
@@ -41,7 +46,9 @@ Azure DevOps OAuth tokens should never be exposed to unrelated services. The Nux
 ## API routes
 
 - `GET /api/azure/projects` — list selectable Azure DevOps projects
-- `GET /api/azure/work-items?project=<name>` — recent work item snapshot
+- `GET /api/azure/work-items?project=<name>` — recent work item snapshot and MongoDB cache seeding
+- `GET /api/azure/dashboard?project=<name>` — dashboard metrics from MongoDB Atlas cache
+- `GET /api/azure/users` — Azure DevOps users for filter dropdowns
 - `POST /api/azure/work-items?project=<name>` — create a work item
 - `PATCH /api/azure/work-items/:id/state?project=<name>` — move a work item to another state
 

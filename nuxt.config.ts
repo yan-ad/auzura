@@ -11,6 +11,8 @@ export default defineNuxtConfig({
     azureClientId: process.env.NUXT_AZURE_CLIENT_ID || process.env.AZURE_CLIENT_ID || '',
     azureClientSecret: process.env.NUXT_AZURE_CLIENT_SECRET || process.env.AZURE_CLIENT_SECRET || '',
     azureRedirectUri: process.env.NUXT_AZURE_REDIRECT_URI || process.env.AZURE_REDIRECT_URI || 'https://auzura.vercel.app/api/auth/azure/callback',
+    mongodbUri: process.env.MONGODB_URI || '',
+    mongodbDb: process.env.MONGODB_DB || 'auzura',
     session: {
       password: process.env.NUXT_SESSION_PASSWORD || ''
     },

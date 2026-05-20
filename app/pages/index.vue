@@ -572,10 +572,10 @@ async function openDetail(item: AzureWorkItem) {
                 <div>
                   <h2 class="text-lg font-semibold text-highlighted">Dashboard graphics</h2>
                   <p class="text-sm text-muted">
-                    SQLite cache{{ dashboardMetrics?.lastSyncedAt ? ` · synced ${formatDate(dashboardMetrics.lastSyncedAt)}` : ' · refresh All Task dulu buat seed data' }}
+                    MongoDB Atlas cache{{ dashboardMetrics?.lastSyncedAt ? ` · synced ${formatDate(dashboardMetrics.lastSyncedAt)}` : ' · refresh All Task dulu buat seed data' }}
                   </p>
                 </div>
-                <UBadge color="neutral" variant="soft">SQLite</UBadge>
+                <UBadge color="neutral" variant="soft">MongoDB Atlas</UBadge>
               </div>
             </template>
 
@@ -599,7 +599,7 @@ async function openDetail(item: AzureWorkItem) {
                 </div>
 
                 <p v-else class="rounded-lg border border-dashed border-default p-6 text-center text-sm text-muted">
-                  Belum ada cache. Refresh All Task dulu buat populate SQLite.
+                  Belum ada cache. Refresh All Task dulu buat populate MongoDB Atlas.
                 </p>
               </div>
             </div>

@@ -1,16 +1,19 @@
-import { mkdirSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { attachDatabasePool } from '@vercel/functions'
+import { MongoClient, type Collection, type Db } from 'mongodb'
 import type { AzureWorkItem } from '../../app/types/azure-devops'
 
-const DEFAULT_SQLITE_PATH = join(process.cwd(), '.data', 'auzura.sqlite')
-
-type SqliteDatabase = {
-  exec: (sql: string) => void
-  prepare: (sql: string) => {
-    run: (...params: unknown[]) => unknown
-    get: (...params: unknown[]) => Record<string, unknown> | undefined
-    all: (...params: unknown[]) => Array<Record<string, unknown>>
-  }
+type WorkItemCacheDocument = {
+  organization: string
+  project: string
+  id: number
+  title: string
+  type: string
+  state: string
+  assignedTo?: string
+  createdBy?: string
+  changedDate?: Date
+  createdDate?: Date
+  cachedAt: Date
 }
 
 export type DashboardMetrics = {
@@ -27,50 +30,69 @@ type CountRow = {
   count: number
 }
 
-let database: SqliteDatabase | undefined
+let mongoClient: MongoClient | undefined
+let mongoClientPromise: Promise<MongoClient> | undefined
 
-function getSqlitePath(): string {
-  return process.env.AUZURA_SQLITE_PATH || DEFAULT_SQLITE_PATH
+function getRuntimeConfig() {
+  const runtimeGlobal = globalThis as typeof globalThis & { useRuntimeConfig?: () => { mongodbUri?: unknown, mongodbDb?: unknown } }
+  return typeof runtimeGlobal.useRuntimeConfig === 'function' ? runtimeGlobal.useRuntimeConfig() : {}
 }
 
-async function createDatabase(sqlitePath: string): Promise<SqliteDatabase> {
-  const nodeSqlite = await import('node:sqlite')
-  const DatabaseSync = nodeSqlite.DatabaseSync as new (path: string) => SqliteDatabase & { pragma?: (statement: string) => unknown }
-  const db = new DatabaseSync(sqlitePath)
-  db.pragma?.('journal_mode = WAL')
-  return db
+function getMongoUri(): string {
+  const config = getRuntimeConfig()
+  const uri = String(config.mongodbUri || process.env.MONGODB_URI || '').trim()
+
+  if (!uri) {
+    throw new Error('MONGODB_URI is required for dashboard metrics cache.')
+  }
+
+  return uri
 }
 
-async function getDatabase(): Promise<SqliteDatabase> {
-  if (database) return database
+function parseDate(value?: string): Date | undefined {
+  if (!value) return undefined
 
-  const sqlitePath = getSqlitePath()
-  mkdirSync(dirname(sqlitePath), { recursive: true })
-  database = await createDatabase(sqlitePath)
-  database.exec(`
-    CREATE TABLE IF NOT EXISTS work_item_cache (
-      organization TEXT NOT NULL,
-      project TEXT NOT NULL,
-      id INTEGER NOT NULL,
-      title TEXT NOT NULL,
-      type TEXT NOT NULL,
-      state TEXT NOT NULL,
-      assigned_to TEXT,
-      created_by TEXT,
-      changed_date TEXT,
-      created_date TEXT,
-      cached_at TEXT NOT NULL,
-      PRIMARY KEY (organization, project, id)
-    )
-  `)
-
-  return database
+  const date = new Date(value)
+  return Number.isFinite(date.getTime()) ? date : undefined
 }
 
-function getBucketForChangedDate(value?: string): string {
+function getDashboardDatabaseName(): string {
+  const config = getRuntimeConfig()
+  return String(config.mongodbDb || process.env.MONGODB_DB || 'auzura').trim() || 'auzura'
+}
+
+function getMongoClient(): Promise<MongoClient> {
+  if (mongoClientPromise) return mongoClientPromise
+
+  mongoClient = new MongoClient(getMongoUri())
+  attachDatabasePool(mongoClient)
+  mongoClientPromise = mongoClient.connect()
+
+  return mongoClientPromise
+}
+
+async function getDashboardDatabase(): Promise<Db> {
+  const client = await getMongoClient()
+  return client.db(getDashboardDatabaseName())
+}
+
+async function getWorkItemCacheCollection(): Promise<Collection<WorkItemCacheDocument>> {
+  const db = await getDashboardDatabase()
+  const collection = db.collection<WorkItemCacheDocument>('work_item_cache')
+
+  await collection.createIndex({ organization: 1, project: 1, id: 1 }, { unique: true })
+  await collection.createIndex({ organization: 1, project: 1, state: 1 })
+  await collection.createIndex({ organization: 1, project: 1, type: 1 })
+  await collection.createIndex({ organization: 1, project: 1, assignedTo: 1 })
+  await collection.createIndex({ organization: 1, project: 1, cachedAt: -1 })
+
+  return collection
+}
+
+function getBucketForChangedDate(value?: Date): string {
   if (!value) return 'No update date'
 
-  const changedAt = new Date(value).getTime()
+  const changedAt = value.getTime()
   if (!Number.isFinite(changedAt)) return 'No update date'
 
   const ageInDays = (Date.now() - changedAt) / 86_400_000
@@ -88,9 +110,9 @@ function withPercent(rows: CountRow[], total: number): Array<{ label: string, co
   }))
 }
 
-function toCountRows(rows: Array<Record<string, unknown>>): CountRow[] {
+function toCountRows(rows: Array<{ _id?: unknown, count?: unknown }>): CountRow[] {
   return rows.map((row) => ({
-    label: typeof row.label === 'string' ? row.label : undefined,
+    label: typeof row._id === 'string' ? row._id : undefined,
     count: Number(row.count || 0)
   }))
 }
@@ -98,57 +120,44 @@ function toCountRows(rows: Array<Record<string, unknown>>): CountRow[] {
 export async function cacheWorkItemsForDashboard(organization: string, project: string, items: AzureWorkItem[]): Promise<void> {
   if (!organization || !project || !items.length) return
 
-  const db = await getDatabase()
-  const cachedAt = new Date().toISOString()
-  const upsert = db.prepare(`
-    INSERT INTO work_item_cache (
-      organization,
-      project,
-      id,
-      title,
-      type,
-      state,
-      assigned_to,
-      created_by,
-      changed_date,
-      created_date,
-      cached_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(organization, project, id) DO UPDATE SET
-      title = excluded.title,
-      type = excluded.type,
-      state = excluded.state,
-      assigned_to = excluded.assigned_to,
-      created_by = excluded.created_by,
-      changed_date = excluded.changed_date,
-      created_date = excluded.created_date,
-      cached_at = excluded.cached_at
-  `)
+  const collection = await getWorkItemCacheCollection()
+  const cachedAt = new Date()
 
-  db.exec('BEGIN')
-
-  try {
-    for (const item of items) {
-      upsert.run(
-        organization,
-        project,
-        item.id,
-        item.title,
-        item.type,
-        item.state,
-        item.assignedTo || null,
-        item.createdBy || null,
-        item.changedDate || null,
-        item.createdDate || null,
-        cachedAt
-      )
+  await collection.bulkWrite(items.map((item) => ({
+    updateOne: {
+      filter: { organization, project, id: item.id },
+      update: {
+        $set: {
+          organization,
+          project,
+          id: item.id,
+          title: item.title,
+          type: item.type,
+          state: item.state,
+          assignedTo: item.assignedTo || undefined,
+          createdBy: item.createdBy || undefined,
+          changedDate: parseDate(item.changedDate),
+          createdDate: parseDate(item.createdDate),
+          cachedAt
+        }
+      },
+      upsert: true
     }
+  })), { ordered: false })
+}
 
-    db.exec('COMMIT')
-  } catch (error) {
-    db.exec('ROLLBACK')
-    throw error
+async function getGroupedCounts(collection: Collection<WorkItemCacheDocument>, match: Pick<WorkItemCacheDocument, 'organization' | 'project'>, field: keyof WorkItemCacheDocument, limit?: number): Promise<CountRow[]> {
+  const pipeline: object[] = [
+    { $match: match },
+    { $group: { _id: { $ifNull: [`$${String(field)}`, field === 'assignedTo' ? 'Unassigned' : '—'] }, count: { $sum: 1 } } },
+    { $sort: { count: -1, _id: 1 } }
+  ]
+
+  if (limit) {
+    pipeline.push({ $limit: limit })
   }
+
+  return toCountRows(await collection.aggregate<{ _id?: unknown, count?: unknown }>(pipeline).toArray())
 }
 
 export async function getDashboardMetrics(organization: string, project: string): Promise<DashboardMetrics> {
@@ -156,38 +165,16 @@ export async function getDashboardMetrics(organization: string, project: string)
     return { total: 0, byState: [], byType: [], byAssignee: [], freshness: [] }
   }
 
-  const db = await getDatabase()
-  const params = [organization, project]
-  const totalRow = db.prepare('SELECT COUNT(*) AS count FROM work_item_cache WHERE organization = ? AND project = ?').get(...params)
-  const total = Number(totalRow?.count || 0)
-  const lastSyncedAt = db.prepare('SELECT MAX(cached_at) AS lastSyncedAt FROM work_item_cache WHERE organization = ? AND project = ?').get(...params)?.lastSyncedAt as string | undefined
-  const byState = toCountRows(db.prepare(`
-    SELECT state AS label, COUNT(*) AS count
-    FROM work_item_cache
-    WHERE organization = ? AND project = ?
-    GROUP BY state
-    ORDER BY count DESC, state ASC
-  `).all(...params))
-  const byType = toCountRows(db.prepare(`
-    SELECT type AS label, COUNT(*) AS count
-    FROM work_item_cache
-    WHERE organization = ? AND project = ?
-    GROUP BY type
-    ORDER BY count DESC, type ASC
-  `).all(...params))
-  const byAssignee = toCountRows(db.prepare(`
-    SELECT COALESCE(NULLIF(assigned_to, ''), 'Unassigned') AS label, COUNT(*) AS count
-    FROM work_item_cache
-    WHERE organization = ? AND project = ?
-    GROUP BY COALESCE(NULLIF(assigned_to, ''), 'Unassigned')
-    ORDER BY count DESC, label ASC
-    LIMIT 6
-  `).all(...params))
-  const cachedItems = db.prepare(`
-    SELECT changed_date AS changedDate
-    FROM work_item_cache
-    WHERE organization = ? AND project = ?
-  `).all(...params) as Array<{ changedDate?: string }>
+  const collection = await getWorkItemCacheCollection()
+  const match = { organization, project }
+  const total = await collection.countDocuments(match)
+  const [latest, byState, byType, byAssignee, cachedItems] = await Promise.all([
+    collection.find(match).sort({ cachedAt: -1 }).limit(1).next(),
+    getGroupedCounts(collection, match, 'state'),
+    getGroupedCounts(collection, match, 'type'),
+    getGroupedCounts(collection, match, 'assignedTo', 6),
+    collection.find(match, { projection: { changedDate: 1 } }).toArray()
+  ])
   const freshnessCounts = new Map<string, number>()
 
   for (const item of cachedItems) {
@@ -206,6 +193,6 @@ export async function getDashboardMetrics(organization: string, project: string)
     byType: withPercent(byType, total),
     byAssignee: withPercent(byAssignee, total),
     freshness: withPercent(freshness, total),
-    lastSyncedAt
+    lastSyncedAt: latest?.cachedAt.toISOString()
   }
 }

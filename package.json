@@ -12,6 +12,8 @@
   },
   "dependencies": {
     "@nuxt/ui": "^4.7.1",
+    "@vercel/functions": "^3.6.0",
+    "mongodb": "^7.2.0",
     "nuxt": "^4.4.6",
     "nuxt-auth-utils": "^0.5.29",
     "zod": "^4.1.13"
