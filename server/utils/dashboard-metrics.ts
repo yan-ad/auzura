@@ -292,6 +292,21 @@ export async function getDashboardMetrics(
   }, { total: 0, byState: [], byType: [], byAssignee: [], freshness: [] });
 }
 
+export async function deleteCachedWorkItem(
+  userKey: string,
+  organization: string,
+  project: string,
+  id: number,
+): Promise<number> {
+  if (!userKey || !organization || !project || !Number.isFinite(id)) return 0;
+
+  return await tryMongoCache(async () => {
+    const collection = await getWorkItemCacheCollection();
+    const result = await collection.deleteOne({ userKey, organization, project, id });
+    return result.deletedCount;
+  }, 0);
+}
+
 export async function purgeWorkItemCache(
   userKey: string,
   organization?: string,

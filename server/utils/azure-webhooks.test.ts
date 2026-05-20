@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildAzureWebhookCallbackUrl, parseAzureServiceHookPayload, verifyAzureWebhookSignature } from "./azure-webhooks";
+import { buildAzureWebhookCallbackUrl, getAzureWebhookCacheAction, parseAzureServiceHookPayload, verifyAzureWebhookSignature } from "./azure-webhooks";
 import { createHmac } from "node:crypto";
 
 describe("buildAzureWebhookCallbackUrl", () => {
@@ -45,5 +45,15 @@ describe("parseAzureServiceHookPayload", () => {
 
     expect(payload.eventType).toBe("workitem.updated");
     expect(payload.resource?.id).toBe(383);
+  });
+});
+
+describe("getAzureWebhookCacheAction", () => {
+  it("maps work item events to cache actions", () => {
+    expect(getAzureWebhookCacheAction("workitem.created")).toBe("upsert");
+    expect(getAzureWebhookCacheAction("workitem.updated")).toBe("upsert");
+    expect(getAzureWebhookCacheAction("workitem.restored")).toBe("upsert");
+    expect(getAzureWebhookCacheAction("workitem.deleted")).toBe("delete");
+    expect(getAzureWebhookCacheAction("workitem.commented")).toBe("ignore");
   });
 });
