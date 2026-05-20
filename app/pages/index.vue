@@ -90,6 +90,15 @@ if (routeProject.value) {
   selectedProject.value = routeProject.value;
 }
 
+watch(
+  activeOrganization,
+  async (organization) => {
+    if (organization || route.path === "/setup") return;
+    await router.replace("/setup");
+  },
+  { immediate: true },
+);
+
 const projectsUrl = computed(
   () =>
     `/api/azure/projects${organizationQuery.value ? `?${organizationQuery.value}` : ""}`,
