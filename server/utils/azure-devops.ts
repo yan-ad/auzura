@@ -14,7 +14,6 @@ import {
   getAzureOAuthAccessToken,
 } from "./azure-auth";
 import { cacheWorkItemsForDashboard } from "./dashboard-metrics";
-import { getSessionCacheOwnerFromEvent } from "./project-cache";
 
 const API_VERSION = "7.1";
 const azureOrganizationStorage = new AsyncLocalStorage<string>();
@@ -348,6 +347,16 @@ function getProjectUrl(
   return `https://dev.azure.com/${organization}/${encodedProject}/_apis/${path}`;
 }
 
+export function buildProjectTeamsUrl(
+  organization: string,
+  projectId: string,
+): string {
+  return getOrganizationUrl(
+    organization,
+    `projects/${encodeURIComponent(projectId)}/teams?api-version=${API_VERSION}`,
+  );
+}
+
 function getOrganizationSlug(account: AzureAccountResponse): string {
   const uriSlug = account.accountUri
     ?.match(/^https:\/\/dev\.azure\.com\/([^/]+)/i)?.[1]
@@ -644,8 +653,17 @@ export async function listProjectTeams(
 ): Promise<AzureTeam[]> {
   const project = assertProject(projectInput);
   const { organization } = getAzureConfig();
+  const projects = await listProjects();
+  const projectMatch = projects.find(
+    (candidate) => candidate.name === project || candidate.id === project,
+  );
+
+  if (!projectMatch) {
+    return [];
+  }
+
   const response = await azureFetch<{ value: AzureTeamResponse[] }>(
-    getProjectUrl(organization, project, `teams?api-version=${API_VERSION}`),
+    buildProjectTeamsUrl(organization, projectMatch.id),
   );
 
   return response.value.map((team) => ({
@@ -823,14 +841,7 @@ export async function listRecentWorkItems(
     project,
     wiql.workItems.slice(0, fetchLimit).map((item) => item.id),
   );
-  const owner = await getSessionCacheOwnerFromEvent(
-    azureEventStorage.getStore(),
-  );
-
-  if (owner) {
-    await cacheWorkItemsForDashboard(owner, organization, project, items);
-  }
-
+  await cacheWorkItemsForDashboard(organization, project, items);
   const filteredItems = applyWorkItemFilters(
     items,
     filters,
