@@ -2,6 +2,8 @@ import { createHmac, timingSafeEqual, randomBytes } from "node:crypto";
 import { createError } from "h3";
 import type { Collection } from "mongodb";
 import { getMongoDatabase, tryMongoCache, tryWriteMongoCache } from "./cache-storage";
+import { cacheWorkItemsForDashboard, deleteCachedWorkItem } from "./dashboard-metrics";
+import { getWorkItem } from "./azure-devops";
 import type { CacheOwner } from "./project-cache";
 
 export type AzureWebhookSubscription = {
@@ -36,6 +38,10 @@ export type AzureWebhookEventDocument = {
   publisherId?: string;
   message?: string;
   payload: unknown;
+  handledAction?: string;
+  handledWorkItemId?: number;
+  handlerStatus: "handled" | "ignored" | "failed";
+  handlerError?: string;
   receivedAt: Date;
 };
 
@@ -55,6 +61,7 @@ type AzureServiceHookPayload = {
     fields?: Record<string, unknown>;
     revision?: { fields?: Record<string, unknown> };
     workItemId?: number | string;
+    workItem?: { id?: number | string };
   };
   resourceContainers?: {
     project?: { id?: string; baseUrl?: string };
@@ -280,6 +287,63 @@ function getWorkItemProject(payload: AzureServiceHookPayload): string | undefine
   return String(payload.resource?.project?.name || payload.resource?.fields?.["System.TeamProject"] || payload.resource?.revision?.fields?.["System.TeamProject"] || "").trim() || undefined;
 }
 
+function getWebhookWorkItemId(payload: AzureServiceHookPayload): number | undefined {
+  const value =
+    payload.resource?.id ||
+    payload.resource?.workItemId ||
+    payload.resource?.workItem?.id ||
+    payload.id;
+  const id = Number(value);
+  return Number.isFinite(id) ? id : undefined;
+}
+
+export function getAzureWebhookCacheAction(eventType?: string): "upsert" | "delete" | "ignore" {
+  if (eventType === "workitem.deleted") return "delete";
+  if (eventType === "workitem.created" || eventType === "workitem.updated" || eventType === "workitem.restored") return "upsert";
+  return "ignore";
+}
+
+async function handleAzureWorkItemCacheEvent(input: {
+  subscription?: AzureWebhookSubscription | null;
+  organization: string;
+  project: string;
+  eventType?: string;
+  workItemId?: number;
+}): Promise<{ status: "handled" | "ignored" | "failed"; action: string; error?: string }> {
+  const action = getAzureWebhookCacheAction(input.eventType);
+
+  if (!input.subscription?.owner || !input.workItemId || action === "ignore") {
+    return { status: "ignored", action };
+  }
+
+  try {
+    if (action === "delete") {
+      await deleteCachedWorkItem(
+        input.subscription.userKey,
+        input.organization,
+        input.project,
+        input.workItemId,
+      );
+    } else {
+      const item = await getWorkItem(input.project, input.workItemId);
+      await cacheWorkItemsForDashboard(
+        input.subscription.owner,
+        input.organization,
+        input.project,
+        [item],
+      );
+    }
+
+    return { status: "handled", action };
+  } catch (error) {
+    return {
+      status: "failed",
+      action,
+      error: error instanceof Error ? error.message : "Webhook handler failed.",
+    };
+  }
+}
+
 export async function receiveAzureWorkItemWebhook(input: {
   organization?: string;
   project?: string;
@@ -307,7 +371,16 @@ export async function receiveAzureWorkItemWebhook(input: {
   }
 
   const receivedAt = new Date();
-  const resourceId = String(payload.resource?.id || payload.resource?.workItemId || "").trim() || payload.id;
+  const workItemId = getWebhookWorkItemId(payload);
+  const resourceId = workItemId ? String(workItemId) : String(payload.resource?.id || payload.resource?.workItemId || "").trim() || payload.id;
+  const handlerResult = await handleAzureWorkItemCacheEvent({
+    subscription,
+    organization,
+    project,
+    eventType,
+    workItemId,
+  });
+
   await tryWriteMongoCache(async () => {
     const events = await getEventsCollection();
     await events.insertOne({
@@ -320,6 +393,10 @@ export async function receiveAzureWorkItemWebhook(input: {
       publisherId: payload.publisherId,
       message: payload.message?.text || payload.message?.markdown || payload.message?.html,
       payload,
+      handledAction: handlerResult.action,
+      handledWorkItemId: workItemId,
+      handlerStatus: handlerResult.status,
+      handlerError: handlerResult.error,
       receivedAt,
     });
 
