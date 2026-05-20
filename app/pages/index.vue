@@ -1460,7 +1460,7 @@ async function addOrganization() {
                     <div class="min-w-0 space-y-2">
                       <div class="flex flex-wrap items-center gap-2">
                         <UBadge color="primary" variant="soft"
-                          >AZ-{{ item.id }}</UBadge
+                          >AB#{{ item.id }}</UBadge
                         >
                         <UBadge color="neutral" variant="soft">{{
                           item.type
@@ -1518,7 +1518,7 @@ async function addOrganization() {
                             class="min-w-0 truncate text-left text-sm text-highlighted hover:text-primary"
                             @click="openDetail(child)"
                           >
-                            AZ-{{ child.id }} · {{ child.title }}
+                            AB#{{ child.id }} · {{ child.title }}
                           </button>
                           <div class="flex shrink-0 items-center gap-2">
                             <UBadge color="info" variant="soft">
@@ -1559,7 +1559,7 @@ async function addOrganization() {
                             class="min-w-0 truncate text-left text-sm text-highlighted hover:text-primary"
                             @click="openDetail(related)"
                           >
-                            AZ-{{ related.id }} · {{ related.title }}
+                            AB#{{ related.id }} · {{ related.title }}
                           </button>
                           <div class="flex shrink-0 items-center gap-2">
                             <UBadge color="neutral" variant="soft">{{
@@ -1621,7 +1621,7 @@ async function addOrganization() {
                   class="truncate text-left text-xs font-medium text-primary hover:underline"
                   @click="openDetail(item)"
                 >
-                  AZ-{{ item.id }}
+                  AB#{{ item.id }}
                 </button>
 
                 <div class="min-w-0">
