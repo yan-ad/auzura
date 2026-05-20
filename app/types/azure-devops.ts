@@ -7,6 +7,12 @@ export interface AzureIdentity {
   descriptor?: string
 }
 
+export interface AzureWorkItemRelation {
+  rel?: string
+  url?: string
+  attributes?: Record<string, unknown>
+}
+
 export interface AzureWorkItem {
   id: number
   rev?: number
@@ -28,6 +34,8 @@ export interface AzureWorkItem {
   description?: string
   acceptanceCriteria?: string
   tags: string[]
+  relations?: AzureWorkItemRelation[]
+  relatedItems?: AzureWorkItem[]
   webUrl: string
 }
 

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import type { AzureOrganization } from '~/types/azure-devops'
+
 definePageMeta({ layout: false })
 
 const toast = useToast()
@@ -8,6 +10,34 @@ const selectedProject = useCookie<string>('auzura:selected-project', { default: 
 const organization = ref(selectedOrganization.value || '')
 const busy = ref(false)
 const { loggedIn } = useUserSession()
+
+const {
+  data: organizationsData,
+  pending: organizationsPending,
+  refresh: refreshOrganizations,
+} = await useFetch<{ organizations: AzureOrganization[] }>('/api/azure/organizations', {
+  immediate: false,
+  watch: false,
+  default: () => ({ organizations: [] }),
+})
+
+const organizationOptions = computed(() =>
+  (organizationsData.value?.organizations ?? []).map((item) => item.slug),
+)
+const hasOrganizationOptions = computed(() => organizationOptions.value.length > 0)
+
+async function refreshOrganizationOptions() {
+  await refreshOrganizations()
+}
+
+watch(
+  loggedIn,
+  async (value) => {
+    if (!value) return
+    await refreshOrganizations()
+  },
+  { immediate: true },
+)
 
 watch(
   [selectedOrganization, selectedProject],
@@ -66,14 +96,44 @@ async function submitSetup() {
       <template #header>
         <div class="space-y-1">
           <h1 class="text-xl font-semibold text-highlighted">Workspace setup</h1>
-          <p class="text-sm text-muted">Enter your Azure DevOps organization to continue.</p>
+          <p class="text-sm text-muted">Pick your Azure DevOps organization to continue.</p>
         </div>
       </template>
 
       <div class="space-y-4">
-        <UFormField label="Organization" required help="Example: your-azure-org">
-          <UInput v-model="organization" icon="i-lucide-building-2" placeholder="your-azure-org" />
+        <UFormField
+          label="Organization"
+          required
+          :help="hasOrganizationOptions ? 'Fetched from your Azure DevOps account.' : 'No organizations loaded yet. You can still enter the slug manually.'"
+        >
+          <USelectMenu
+            v-if="hasOrganizationOptions"
+            v-model="organization"
+            :items="organizationOptions"
+            :loading="organizationsPending"
+            icon="i-lucide-building-2"
+            placeholder="Select organization"
+            searchable
+          />
+          <UInput
+            v-else
+            v-model="organization"
+            :loading="organizationsPending"
+            icon="i-lucide-building-2"
+            placeholder="your-azure-org"
+          />
         </UFormField>
+
+        <UButton
+          v-if="loggedIn"
+          color="neutral"
+          variant="ghost"
+          block
+          :loading="organizationsPending"
+          @click="refreshOrganizationOptions"
+        >
+          Refresh organizations
+        </UButton>
 
         <UButton color="primary" block :loading="busy" @click="submitSetup">
           Save and continue
