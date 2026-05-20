@@ -6,10 +6,6 @@ export default defineNuxtConfig({
   modules: ["@nuxt/ui", "nuxt-auth-utils"],
   css: ["~/../assets/css/main.css"],
   runtimeConfig: {
-    azureDevOpsOrganization:
-      process.env.NUXT_AZURE_DEVOPS_ORGANIZATION ||
-      process.env.AZURE_DEVOPS_ORGANIZATION ||
-      "",
     azureTenantId:
       process.env.NUXT_AZURE_TENANT_ID || process.env.AZURE_TENANT_ID || "",
     azureClientId:
@@ -24,6 +20,10 @@ export default defineNuxtConfig({
       "https://auzura.vercel.app/api/auth/azure/callback",
     mongodbUri: process.env.MONGODB_URI || "",
     mongodbDb: process.env.MONGODB_DB || "auzura",
+    azureDevOpsWebhookSecret:
+      process.env.NUXT_AZURE_DEVOPS_WEBHOOK_SECRET ||
+      process.env.AZURE_DEVOPS_WEBHOOK_SECRET ||
+      "",
     session: {
       password: process.env.NUXT_SESSION_PASSWORD || "",
     },

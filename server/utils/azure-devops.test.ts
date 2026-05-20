@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildWorkItemBatchBody, buildProjectTeamsUrl, buildWorkItemsWiql, chunkWorkItemIds, getAzureCollectionItems, getGraphUsersFromResponse, getRelationTargetIds, groupWorkItemRelations, isAssignedToCandidate, isCreatedByCandidate, normalizeUser } from './azure-devops'
+import { buildWorkItemBatchBody, buildProjectTeamsUrl, buildWorkItemsWiql, chunkWorkItemIds, getAzureCollectionItems, getGraphUsersFromResponse, getRelationTargetIds, groupWorkItemRelations, isAssignedToCandidate, isCreatedByCandidate, normalizeUser, normalizeWorkItem } from './azure-devops'
 
 describe('buildWorkItemsWiql', () => {
   it('uses Azure DevOps @project context instead of interpolating a project literal', () => {
@@ -130,10 +130,35 @@ describe('groupWorkItemRelations', () => {
 
 
 describe('buildWorkItemBatchBody', () => {
+  it('requests custom story point fields for cached list rendering', () => {
+    expect(buildWorkItemBatchBody([383]).fields).toEqual(
+      expect.arrayContaining(['Custom.EstimatedSP', 'Custom.Effort'])
+    )
+  })
+
   it('does not send fields when expanding relations because Azure DevOps rejects that combination', () => {
     expect(buildWorkItemBatchBody([383], { includeRelations: true })).toEqual({
       ids: [383],
       $expand: 'Relations'
     })
+  })
+})
+
+
+describe('normalizeWorkItem', () => {
+  it('normalizes custom task and PBI estimate fields', () => {
+    const item = normalizeWorkItem({
+      id: 383,
+      fields: {
+        'System.WorkItemType': 'Task',
+        'System.Title': 'Build compact list',
+        'System.State': 'Active',
+        'Custom.EstimatedSP': '3',
+        'Custom.Effort': 8
+      }
+    })
+
+    expect(item.estimatedStoryPoints).toBe(3)
+    expect(item.effort).toBe(8)
   })
 })

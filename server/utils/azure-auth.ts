@@ -6,6 +6,7 @@ type RuntimeOAuthConfig = {
   azureClientId?: unknown;
   azureClientSecret?: unknown;
   azureRedirectUri?: unknown;
+  azureDevOpsWebhookSecret?: unknown;
   public?: { azureDevOpsOrganization?: unknown };
 };
 

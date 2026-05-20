@@ -16,6 +16,8 @@ type WorkItemCacheDocument = {
   title: string;
   type: string;
   state: string;
+  estimatedStoryPoints?: number;
+  effort?: number;
   assignedTo?: string;
   createdBy?: string;
   changedDate?: Date;
@@ -191,6 +193,8 @@ export async function cacheWorkItemsForDashboard(
               title: item.title,
               type: item.type,
               state: item.state,
+              estimatedStoryPoints: item.estimatedStoryPoints,
+              effort: item.effort,
               assignedTo: item.assignedTo || undefined,
               createdBy: item.createdBy || undefined,
               changedDate: parseDate(item.changedDate),

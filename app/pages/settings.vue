@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { AzureWebhookSubscription } from "../types/azure-devops";
 const toast = useToast();
 
 const organizationCookie = useCookie<string>("auzura:organization", {
@@ -116,9 +117,41 @@ const {
   })),
 });
 
+const webhooksUrl = computed(() => {
+  if (!organization.value || !project.value) return "";
+  return `/api/azure/webhooks?organization=${encodeURIComponent(organization.value)}&project=${encodeURIComponent(project.value)}`;
+});
+
+const {
+  data: webhooksData,
+  pending: webhooksPending,
+  refresh: refreshWebhooks,
+} = await useFetch<{ webhooks: AzureWebhookSubscription[] }>(webhooksUrl, {
+  immediate: false,
+  watch: false,
+});
+const projectWebhooks = computed(() => webhooksData.value?.webhooks ?? []);
+const activeWebhook = computed(() => projectWebhooks.value[0]);
+
+watch([organization, project], async ([org, proj]) => {
+  if (!org || !proj) {
+    webhooksData.value = undefined;
+    return;
+  }
+  await refreshWebhooks();
+});
+
+watch(activeWebhook, (webhook) => {
+  if (!webhook) return;
+  webhookForm.eventTypes = [...webhook.eventTypes];
+  webhookForm.callbackUrl = webhook.callbackUrl;
+  webhookForm.isActive = webhook.isActive;
+});
+
 const resyncPending = ref(false);
 const purgePending = ref(false);
 const defaultPending = ref(false);
+const webhookPending = ref(false);
 const resyncResult = ref<null | {
   syncedAt: string;
   teamCount: number;
@@ -133,6 +166,19 @@ const purgeResult = ref<null | {
   deletedSprints: number;
   deletedUsers: number;
 }>(null);
+const webhookEventOptions = [
+  "workitem.created",
+  "workitem.updated",
+  "workitem.deleted",
+  "workitem.restored",
+  "workitem.commented",
+];
+const webhookForm = reactive({
+  eventTypes: ["workitem.created", "workitem.updated"],
+  callbackUrl: "",
+  secret: "",
+  isActive: true,
+});
 
 function formatDateTime(value?: string) {
   if (!value) return "—";
@@ -208,6 +254,70 @@ async function resyncSprints() {
     });
   } finally {
     resyncPending.value = false;
+  }
+}
+
+async function saveWebhook() {
+  if (!organization.value || !project.value) return;
+  webhookPending.value = true;
+
+  try {
+    const response = await $fetch<{ webhook: AzureWebhookSubscription }>(
+      "/api/azure/webhooks",
+      {
+        method: "POST",
+        body: {
+          organization: organization.value,
+          project: project.value,
+          eventTypes: webhookForm.eventTypes,
+          callbackUrl: webhookForm.callbackUrl || undefined,
+          secret: webhookForm.secret || undefined,
+          isActive: webhookForm.isActive,
+          description: "Azure DevOps work item service hook",
+        },
+      },
+    );
+
+    webhookForm.callbackUrl = response.webhook.callbackUrl;
+    webhookForm.secret = "";
+    await refreshWebhooks();
+    toast.add({
+      title: "Webhook saved",
+      description: `${organization.value}/${project.value}`,
+      color: "success",
+    });
+  } catch (error) {
+    toast.add({
+      title: "Webhook save failed",
+      description: error instanceof Error ? error.message : "Could not save webhook.",
+      color: "error",
+    });
+  } finally {
+    webhookPending.value = false;
+  }
+}
+
+async function deleteWebhook() {
+  if (!organization.value || !project.value) return;
+  webhookPending.value = true;
+
+  try {
+    await $fetch(
+      `/api/azure/webhooks?organization=${encodeURIComponent(organization.value)}&project=${encodeURIComponent(project.value)}`,
+      { method: "DELETE" },
+    );
+    await refreshWebhooks();
+    webhookForm.callbackUrl = "";
+    webhookForm.secret = "";
+    toast.add({ title: "Webhook removed", color: "success" });
+  } catch (error) {
+    toast.add({
+      title: "Webhook delete failed",
+      description: error instanceof Error ? error.message : "Could not delete webhook.",
+      color: "error",
+    });
+  } finally {
+    webhookPending.value = false;
   }
 }
 
@@ -388,6 +498,97 @@ async function purgeCache(scope: "workspace" | "all") {
           </div>
         </UCard>
       </div>
+
+      <UCard>
+        <template #header>
+          <div class="space-y-1">
+            <h2 class="text-base font-semibold text-highlighted">
+              Azure DevOps work item webhook
+            </h2>
+            <p class="text-sm text-muted">
+              Endpoint penerima service hooks work item per project. Copy URL ini ke Azure DevOps Project Settings → Service hooks.
+            </p>
+          </div>
+        </template>
+
+        <div class="space-y-4">
+          <div class="grid gap-3 md:grid-cols-2">
+            <UFormField label="Events">
+              <USelectMenu
+                v-model="webhookForm.eventTypes"
+                :items="webhookEventOptions"
+                multiple
+                class="w-full"
+              />
+            </UFormField>
+            <UFormField label="Status">
+              <USwitch v-model="webhookForm.isActive" label="Active" />
+            </UFormField>
+          </div>
+
+          <UFormField label="Callback URL">
+            <UInput
+              v-model="webhookForm.callbackUrl"
+              placeholder="Auto generated from deployed base URL if empty"
+            />
+          </UFormField>
+
+          <UFormField label="Secret">
+            <UInput
+              v-model="webhookForm.secret"
+              type="password"
+              placeholder="Optional: set same secret in Azure DevOps service hook"
+            />
+          </UFormField>
+
+          <div class="flex flex-wrap gap-2">
+            <UButton
+              color="primary"
+              :loading="webhookPending"
+              :disabled="!organization || !project"
+              @click="saveWebhook"
+            >
+              Save webhook
+            </UButton>
+            <UButton
+              color="error"
+              variant="soft"
+              :loading="webhookPending"
+              :disabled="!activeWebhook"
+              @click="deleteWebhook"
+            >
+              Remove webhook
+            </UButton>
+          </div>
+
+          <div
+            v-if="webhooksPending"
+            class="rounded-lg border border-default bg-elevated/40 p-4 text-sm text-muted"
+          >
+            Loading webhook subscription…
+          </div>
+
+          <div
+            v-else-if="activeWebhook"
+            class="rounded-lg border border-default bg-elevated/40 p-4 text-sm text-muted"
+          >
+            <p>
+              Callback:
+              <code class="text-highlighted">{{ activeWebhook.callbackUrl }}</code>
+            </p>
+            <p>Events: {{ activeWebhook.eventTypes.join(", ") }}</p>
+            <p>Secret: {{ activeWebhook.secretPreview }}</p>
+            <p>Status: {{ activeWebhook.isActive ? "active" : "inactive" }}</p>
+            <p v-if="activeWebhook.lastReceivedAt">
+              Last event: {{ activeWebhook.lastEventType }} #{{ activeWebhook.lastEventResourceId || "—" }} · {{ formatDateTime(activeWebhook.lastReceivedAt) }}
+            </p>
+          </div>
+
+          <p v-else class="rounded-lg border border-dashed border-default p-4 text-sm text-muted">
+            Belum ada webhook buat project ini.
+          </p>
+        </div>
+      </UCard>
 
       <UCard>
         <template #header>
