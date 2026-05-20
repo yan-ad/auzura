@@ -439,7 +439,7 @@ watch(
 );
 
 watch([activeProject, canLoadAzure], async ([project, canLoad]) => {
-  if (!project || !canLoad) {
+  if (!project || !canLoad || activeSection.value !== "sprint-task") {
     teamsData.value = undefined;
     sprintsData.value = undefined;
     sprintItemsData.value = undefined;
@@ -454,6 +454,7 @@ watch([activeProject, canLoadAzure], async ([project, canLoad]) => {
 watch(
   teams,
   async (value) => {
+    if (activeSection.value !== "sprint-task") return;
     if (!value.length) {
       selectedTeam.value = "";
       return;
@@ -476,7 +477,8 @@ watch(
 watch(
   [selectedTeam, activeProject, canLoadAzure],
   async ([team, project, canLoad]) => {
-    if (!team || !project || !canLoad) return;
+    if (!team || !project || !canLoad || activeSection.value !== "sprint-task")
+      return;
     await refreshSprints();
   },
 );
@@ -484,6 +486,7 @@ watch(
 watch(
   sprints,
   async (value) => {
+    if (activeSection.value !== "sprint-task") return;
     if (!value.length) {
       selectedSprintPath.value = "";
       sprintItemsData.value = undefined;
@@ -511,9 +514,29 @@ watch(
 watch(
   [selectedSprintPath, activeProject, canLoadAzure],
   async ([sprintPath, project, canLoad]) => {
-    if (!sprintPath || !project || !canLoad) return;
+    if (
+      !sprintPath ||
+      !project ||
+      !canLoad ||
+      activeSection.value !== "sprint-task"
+    )
+      return;
     await refreshSprintItems();
   },
+);
+
+watch(
+  activeSection,
+  async (section) => {
+    if (
+      section !== "sprint-task" ||
+      !activeProject.value ||
+      !canLoadAzure.value
+    )
+      return;
+    await refreshTeams();
+  },
+  { immediate: true },
 );
 
 function withOrganizationQuery(path: string) {
