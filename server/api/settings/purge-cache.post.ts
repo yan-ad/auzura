@@ -4,6 +4,10 @@ import {
   getSessionCacheOwnerFromEvent,
   purgeCachedProjects,
 } from "../../utils/project-cache";
+import {
+  purgeCachedSprintTeams,
+  purgeCachedTeamSprints,
+} from "../../utils/sprint-cache";
 import { purgeCachedUser } from "../../utils/user-cache";
 
 type PurgeScope = "workspace" | "all";
@@ -36,12 +40,24 @@ export default defineEventHandler(async (event) => {
     scope === "workspace" ? organization : undefined,
     scope === "workspace" ? project : undefined,
   );
+  const deletedSprintTeams = await purgeCachedSprintTeams(
+    owner.key,
+    scope === "workspace" ? organization : undefined,
+    scope === "workspace" ? project : undefined,
+  );
+  const deletedSprints = await purgeCachedTeamSprints(
+    owner.key,
+    scope === "workspace" ? organization : undefined,
+    scope === "workspace" ? project : undefined,
+  );
   const deletedUsers = scope === "all" ? await purgeCachedUser(owner.key) : 0;
 
   return {
     scope,
     deletedProjects,
     deletedWorkItems,
+    deletedSprintTeams,
+    deletedSprints,
     deletedUsers,
   };
 });

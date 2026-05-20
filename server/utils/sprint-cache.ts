@@ -205,3 +205,63 @@ export async function setCachedTeamSprints(input: {
     { upsert: true },
   );
 }
+
+export async function purgeCachedSprintTeams(
+  userKey: string,
+  organization?: string,
+  project?: string,
+): Promise<number> {
+  const ownerKey = String(userKey || "").trim();
+  if (!ownerKey) return 0;
+
+  const collection = await getTeamsCollection();
+  const query: {
+    userKey: string;
+    organization?: string;
+    project?: string;
+  } = { userKey: ownerKey };
+
+  const normalizedOrganization = String(organization || "").trim();
+  const normalizedProject = String(project || "").trim();
+
+  if (normalizedOrganization) {
+    query.organization = normalizedOrganization;
+  }
+
+  if (normalizedProject) {
+    query.project = normalizedProject;
+  }
+
+  const result = await collection.deleteMany(query);
+  return result.deletedCount ?? 0;
+}
+
+export async function purgeCachedTeamSprints(
+  userKey: string,
+  organization?: string,
+  project?: string,
+): Promise<number> {
+  const ownerKey = String(userKey || "").trim();
+  if (!ownerKey) return 0;
+
+  const collection = await getSprintsCollection();
+  const query: {
+    userKey: string;
+    organization?: string;
+    project?: string;
+  } = { userKey: ownerKey };
+
+  const normalizedOrganization = String(organization || "").trim();
+  const normalizedProject = String(project || "").trim();
+
+  if (normalizedOrganization) {
+    query.organization = normalizedOrganization;
+  }
+
+  if (normalizedProject) {
+    query.project = normalizedProject;
+  }
+
+  const result = await collection.deleteMany(query);
+  return result.deletedCount ?? 0;
+}
