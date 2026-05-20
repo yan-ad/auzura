@@ -190,7 +190,8 @@ async function purgeCache(scope: "workspace" | "all") {
                 Sprint sync
               </h2>
               <p class="text-sm text-muted">
-                Rebuild sprint cache by refreshing team list and sprint iterations from Azure DevOps.
+                Rebuild sprint cache by refreshing team list and sprint
+                iterations from Azure DevOps.
               </p>
             </div>
           </template>
@@ -271,7 +272,9 @@ async function purgeCache(scope: "workspace" | "all") {
               </p>
               <p>Projects removed: {{ purgeResult.deletedProjects }}</p>
               <p>Work items removed: {{ purgeResult.deletedWorkItems }}</p>
-              <p>Sprint team caches removed: {{ purgeResult.deletedSprintTeams }}</p>
+              <p>
+                Sprint team caches removed: {{ purgeResult.deletedSprintTeams }}
+              </p>
               <p>Sprint caches removed: {{ purgeResult.deletedSprints }}</p>
               <p>User documents removed: {{ purgeResult.deletedUsers }}</p>
             </div>
