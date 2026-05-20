@@ -1,6 +1,7 @@
 export type ProjectSection = "tasks" | "report" | "sprint-task" | "settings";
 
 export function getProjectSectionFromPath(path: string): ProjectSection {
+  if (path.endsWith("/settings")) return "settings";
   if (path.endsWith("/report")) return "report";
   if (path.endsWith("/sprint-task")) return "sprint-task";
   return "tasks";

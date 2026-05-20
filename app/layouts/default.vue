@@ -106,14 +106,28 @@ const { data: organizationsData, refresh: refreshOrganizations } =
     "/api/azure/organizations",
     { immediate: false, watch: false },
   );
+const organizations = computed(
+  () => organizationsData.value?.organizations ?? [],
+);
 const organizationItems = computed(() => {
-  const merged = new Set(
-    (organizationsData.value?.organizations ?? []).map(
-      (organization) => organization.slug,
-    ),
+  const merged = new Map(
+    organizations.value.map((organization) => [
+      organization.slug,
+      organization,
+    ]),
   );
-  if (activeOrganization.value) merged.add(activeOrganization.value);
-  return Array.from(merged).sort((a, b) => a.localeCompare(b));
+  if (activeOrganization.value && !merged.has(activeOrganization.value)) {
+    merged.set(activeOrganization.value, {
+      id: activeOrganization.value,
+      name: activeOrganization.value,
+      slug: activeOrganization.value,
+    });
+  }
+  return Array.from(merged.values()).sort(
+    (first, second) =>
+      Number(Boolean(second.isDefault)) - Number(Boolean(first.isDefault)) ||
+      first.slug.localeCompare(second.slug),
+  );
 });
 
 const teamsUrl = computed(() =>
@@ -225,6 +239,7 @@ watch(
 const isAddOrganizationOpen = ref(false);
 const newOrganization = ref("");
 const addingOrganization = ref(false);
+const settingDefaultOrganization = ref(false);
 
 async function addOrganization() {
   const organization = newOrganization.value.trim();
@@ -256,6 +271,23 @@ async function logoutFromMicrosoft() {
   await refreshSession();
 }
 
+async function setCurrentOrganizationAsDefault() {
+  if (!activeOrganization.value || settingDefaultOrganization.value) return;
+
+  settingDefaultOrganization.value = true;
+  try {
+    await $fetch("/api/azure/default-organization" as string, {
+      method: "POST",
+      body: {
+        organization: activeOrganization.value,
+      },
+    });
+    await refreshOrganizations();
+  } finally {
+    settingDefaultOrganization.value = false;
+  }
+}
+
 const userMenuItems = computed<DropdownMenuItem[][]>(() => [
   [
     {
@@ -274,10 +306,13 @@ const userMenuItems = computed<DropdownMenuItem[][]>(() => [
 
 const organizationProjectMenuItems = computed<DropdownMenuItem[][]>(() => [
   organizationItems.value.map((organization) => ({
-    label: organization,
-    icon: "i-lucide-building-2",
+    label:
+      organization.isDefault ?
+        `${organization.slug} (default)`
+      : organization.slug,
+    icon: organization.isDefault ? "i-lucide-star" : "i-lucide-building-2",
     onSelect: () => {
-      selectedOrganization.value = organization;
+      selectedOrganization.value = organization.slug;
       selectedProject.value = "";
     },
   })),
@@ -289,6 +324,12 @@ const organizationProjectMenuItems = computed<DropdownMenuItem[][]>(() => [
     },
   })),
   [
+    {
+      label: "Set current as default",
+      icon: "i-lucide-star",
+      disabled: !activeOrganization.value || settingDefaultOrganization.value,
+      onSelect: async () => await setCurrentOrganizationAsDefault(),
+    },
     {
       label: "Add organization",
       icon: "i-lucide-circle-plus",
