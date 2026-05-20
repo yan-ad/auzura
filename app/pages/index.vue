@@ -932,15 +932,13 @@ function isTaskWorkItem(item: AzureWorkItem): boolean {
 }
 
 function storyPointLabel(item: AzureWorkItem): string {
-<<<<<<< HEAD
-  return item.type === "Task" ? "SP" : "Effort";
-=======
   return isTaskWorkItem(item) ? "Estimated SP" : "Effort";
->>>>>>> origin/main
 }
 
 function storyPointValue(item: AzureWorkItem): number | undefined {
-  return isTaskWorkItem(item) ? (item.estimatedStoryPoints ?? item.effort) : item.effort;
+  return isTaskWorkItem(item) ?
+      (item.estimatedStoryPoints ?? item.effort)
+    : item.effort;
 }
 
 async function refreshCurrentView() {
