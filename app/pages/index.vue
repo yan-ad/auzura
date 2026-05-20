@@ -140,6 +140,17 @@ const organizationOptions = computed(() =>
     (organization) => organization.slug,
   ),
 );
+const organizationItems = computed(() => {
+  const merged = new Set<string>(organizationOptions.value);
+  if (activeOrganization.value) {
+    merged.add(activeOrganization.value);
+  }
+
+  return Array.from(merged).sort((first, second) => first.localeCompare(second));
+});
+const isAddOrganizationOpen = ref(false);
+const newOrganization = ref("");
+const addingOrganization = ref(false);
 
 const usersUrl = computed(() => withOrganizationQuery("/api/azure/users?"));
 const {
@@ -643,6 +654,61 @@ async function openDetail(item: AzureWorkItem) {
   isDetailOpen.value = true;
   await refreshDetail();
 }
+
+async function addOrganization() {
+  const organization = newOrganization.value.trim();
+
+  if (!organization) {
+    toast.add({ title: "Organization is required", color: "warning" });
+    return;
+  }
+
+  if (!loggedIn.value) {
+    toast.add({ title: "Sign in with Microsoft first", color: "warning" });
+    return;
+  }
+
+  addingOrganization.value = true;
+
+  try {
+    const response = await $fetch<{ organization: string; projects: AzureProject[] }>(
+      "/api/azure/setup",
+      {
+        method: "POST",
+        body: { organization },
+      },
+    );
+
+    const projects = response.projects ?? [];
+    if (!projects.length) {
+      toast.add({
+        title: "Organization has no accessible projects",
+        color: "warning",
+      });
+      return;
+    }
+
+    selectedOrganization.value = response.organization;
+    selectedProject.value = projects[0]?.name || "";
+    newOrganization.value = "";
+    isAddOrganizationOpen.value = false;
+    await refreshOrganizations();
+    toast.add({
+      title: "Organization added",
+      description: response.organization,
+      color: "success",
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to add organization";
+    toast.add({
+      title: "Invalid organization",
+      description: message,
+      color: "error",
+    });
+  } finally {
+    addingOrganization.value = false;
+  }
+}
 </script>
 
 <template>
@@ -736,21 +802,24 @@ async function openDetail(item: AzureWorkItem) {
         >
           <UFormField
             label="Organization"
-            help="Required. Enter your Azure DevOps organization slug."
+            help="Required. Select an organization, or add a new one."
           >
-            <UInput
+            <USelectMenu
               v-model="selectedOrganization"
               icon="i-lucide-building-2"
-              placeholder="your-azure-org"
-              list="azure-organization-list"
+              :items="organizationItems"
+              placeholder="Select organization"
+              searchable
             />
-            <datalist id="azure-organization-list">
-              <option
-                v-for="organization in organizationOptions"
-                :key="organization"
-                :value="organization"
-              />
-            </datalist>
+            <UButton
+              class="mt-2"
+              color="neutral"
+              variant="soft"
+              icon="i-lucide-plus"
+              @click="isAddOrganizationOpen = true"
+            >
+              Add organization
+            </UButton>
           </UFormField>
 
           <UFormField label="Project">
@@ -1375,4 +1444,28 @@ async function openDetail(item: AzureWorkItem) {
       </template>
     </UModal>
   </UDashboardGroup>
+
+  <UModal v-model:open="isAddOrganizationOpen" title="Add organization">
+    <template #body>
+      <div class="space-y-3">
+        <UFormField label="Organization slug" help="Will be validated by fetching project list.">
+          <UInput
+            v-model="newOrganization"
+            icon="i-lucide-building-2"
+            placeholder="your-azure-org"
+          />
+        </UFormField>
+      </div>
+    </template>
+    <template #footer>
+      <div class="flex w-full justify-end gap-2">
+        <UButton color="neutral" variant="ghost" @click="isAddOrganizationOpen = false">
+          Cancel
+        </UButton>
+        <UButton color="primary" :loading="addingOrganization" @click="addOrganization">
+          Validate and add
+        </UButton>
+      </div>
+    </template>
+  </UModal>
 </template>
