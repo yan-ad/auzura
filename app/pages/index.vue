@@ -897,7 +897,7 @@ async function openDetail(item: AzureWorkItem) {
             :description="`${usersError.message}. Filter member masih bisa diketik manual.`"
           />
 
-          <UPageGrid class="gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <UPageGrid v-if="activeSection === 'report'" class="gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <UPageCard
               v-for="stat in dashboardStats"
               :key="stat.title"
@@ -924,7 +924,7 @@ async function openDetail(item: AzureWorkItem) {
             </UPageCard>
           </UPageGrid>
 
-          <UCard variant="subtle">
+          <UCard v-if="activeSection === 'report'" variant="subtle">
             <template #header>
               <div
                 class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"
