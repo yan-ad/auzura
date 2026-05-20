@@ -58,6 +58,7 @@ const routeProject = computed(() => getRouteParam(route.params.project));
 const activeSection = computed<SectionView>(() =>
   getProjectSectionFromPath(route.path),
 );
+const isGlobalSettingsRoute = computed(() => route.path === "/settings");
 
 watch(
   [routeOrganization, routeProject],
@@ -73,6 +74,7 @@ watch(
 watch(
   [activeOrganization, selectedProject],
   async ([organization, project]) => {
+    if (isGlobalSettingsRoute.value) return;
     if (!organization) return;
     const targetPath = buildProjectSectionPath(
       organization,
@@ -263,6 +265,13 @@ const organizationProjectMenuItems = computed<DropdownMenuItem[][]>(() => [
 ]);
 
 async function goToSection(section: SectionView) {
+  if (section === "settings") {
+    if (route.path !== "/settings") {
+      await router.replace("/settings");
+    }
+    return;
+  }
+
   const targetPath = buildProjectSectionPath(
     activeOrganization.value,
     selectedProject.value || "",
@@ -323,7 +332,11 @@ const viewNavigation = computed<NavigationMenuItem[][]>(() => {
         label: "Settings",
         icon: "i-lucide-settings-2",
         active: activeSection.value === "settings",
-        onSelect: async () => await goToSection("settings"),
+        onSelect: async () => {
+          if (route.path !== "/settings") {
+            await router.replace("/settings");
+          }
+        },
       },
     ],
     ...(sidebarTeamGroups.value.length || sidebarTeamsPending.value ?
