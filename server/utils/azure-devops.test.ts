@@ -200,4 +200,14 @@ describe('getEstimateFieldValues', () => {
       effort: 21
     })
   })
+
+  it('falls back to effort as estimated story points for child task rows', () => {
+    expect(getEstimateFieldValues({
+      'System.WorkItemType': 'Task',
+      'Microsoft.VSTS.Scheduling.Effort': 3
+    })).toEqual({
+      estimatedStoryPoints: 3,
+      effort: 3
+    })
+  })
 })

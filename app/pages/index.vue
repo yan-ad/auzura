@@ -927,12 +927,20 @@ function formatNumberValue(value?: number) {
   return value === undefined || value === null ? "-" : String(value);
 }
 
+function isTaskWorkItem(item: AzureWorkItem): boolean {
+  return item.type.trim().toLowerCase() === "task";
+}
+
 function storyPointLabel(item: AzureWorkItem): string {
+<<<<<<< HEAD
   return item.type === "Task" ? "SP" : "Effort";
+=======
+  return isTaskWorkItem(item) ? "Estimated SP" : "Effort";
+>>>>>>> origin/main
 }
 
 function storyPointValue(item: AzureWorkItem): number | undefined {
-  return item.type === "Task" ? item.estimatedStoryPoints : item.effort;
+  return isTaskWorkItem(item) ? (item.estimatedStoryPoints ?? item.effort) : item.effort;
 }
 
 async function refreshCurrentView() {
@@ -1516,10 +1524,7 @@ async function addOrganization() {
                           </button>
                           <div class="flex shrink-0 items-center gap-2">
                             <UBadge color="info" variant="soft">
-                              SP
-                              {{
-                                formatNumberValue(child.estimatedStoryPoints)
-                              }}
+                              SP {{ formatNumberValue(storyPointValue(child)) }}
                             </UBadge>
                             <UBadge color="neutral" variant="soft">{{
                               child.type
