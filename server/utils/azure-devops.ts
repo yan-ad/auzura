@@ -82,6 +82,11 @@ type FetchErrorWithData = Error & {
   }
 }
 
+function getHttpStatusCode(error: unknown): number | undefined {
+  const fetchError = error as FetchErrorWithData
+  return fetchError.statusCode || fetchError.status
+}
+
 function escapeWiqlString(value: string): string {
   return value.replaceAll("'", "''")
 }
@@ -483,9 +488,31 @@ export async function listProjects(): Promise<AzureProject[]> {
 
 export async function listUsers(): Promise<AzureUser[]> {
   const { organization } = getAzureConfig()
-  const response = await azureFetch<{ value: AzureGraphUserResponse[] }>(
-    getVisualStudioGraphUrl(organization, `users?api-version=${API_VERSION}-preview.1`)
-  )
+  let response: { value: AzureGraphUserResponse[] }
+
+  try {
+    response = await azureFetch<{ value: AzureGraphUserResponse[] }>(
+      getVisualStudioGraphUrl(organization, `users?api-version=${API_VERSION}-preview.1`)
+    )
+  } catch (error) {
+    const statusCode = getHttpStatusCode(error)
+
+    // Some orgs/scopes do not expose Graph users and return 404/403.
+    // Keep the app functional by falling back to the signed-in identity.
+    if (statusCode === 404 || statusCode === 403) {
+      const currentUser = await getCurrentUser()
+      return currentUser.displayName
+        ? [{
+            displayName: currentUser.displayName,
+            uniqueName: currentUser.email,
+            email: currentUser.email
+          }]
+        : []
+    }
+
+    throw error
+  }
+
   const users = response.value
     .map(normalizeUser)
     .filter((user): user is AzureUser => Boolean(user))
