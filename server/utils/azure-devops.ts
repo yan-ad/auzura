@@ -90,6 +90,7 @@ type AzureCollectionResponse<T> = {
   value?: T[];
   members?: T[];
   workItems?: T[];
+  count?: number;
 };
 
 type AzureGraphUsersResponse = AzureCollectionResponse<AzureGraphUserResponse>;
@@ -443,8 +444,9 @@ export function normalizeUser(
 }
 
 export function getAzureCollectionItems<T>(
-  response?: AzureCollectionResponse<T>,
+  response?: AzureCollectionResponse<T> | T[],
 ): T[] {
+  if (Array.isArray(response)) return response;
   if (Array.isArray(response?.value)) return response.value;
   if (Array.isArray(response?.members)) return response.members;
   if (Array.isArray(response?.workItems)) return response.workItems;

@@ -70,9 +70,11 @@ describe('getAzureCollectionItems', () => {
   it('accepts Azure collection variants and returns an empty array for malformed responses', () => {
     const item = { id: 'project-guid', name: 'OPI Board' }
 
+    expect(getAzureCollectionItems([item])).toEqual([item])
     expect(getAzureCollectionItems({ value: [item] })).toEqual([item])
     expect(getAzureCollectionItems({ members: [item] })).toEqual([item])
     expect(getAzureCollectionItems({ workItems: [item] })).toEqual([item])
+    expect(getAzureCollectionItems({ count: 1, value: [item] })).toEqual([item])
     expect(getAzureCollectionItems({})).toEqual([])
   })
 })
