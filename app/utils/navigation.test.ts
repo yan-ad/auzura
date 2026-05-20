@@ -12,9 +12,9 @@ describe('project navigation routes', () => {
 
 describe('buildProjectStateQuery', () => {
   it('persists selected team and sprint in URL query params', () => {
-    expect(buildProjectStateQuery({}, { team: 'Internal Squad', sprint: 'Product Delivery\Sprint 5\Sprint 9 - Internal Squad' })).toEqual({
+    expect(buildProjectStateQuery({}, { team: 'Internal Squad', sprint: 'Product Delivery\\Sprint 5\\Sprint 9 - Internal Squad' })).toEqual({
       team: 'Internal Squad',
-      sprint: 'Product Delivery\Sprint 5\Sprint 9 - Internal Squad'
+      sprint: 'Product Delivery\\Sprint 5\\Sprint 9 - Internal Squad'
     })
   })
 })
