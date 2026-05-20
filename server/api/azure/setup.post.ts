@@ -4,6 +4,7 @@ import {
   getSessionCacheOwner,
   setCachedProjects,
 } from "../../utils/project-cache";
+import { rememberOrganization } from "../../utils/user-cache";
 
 export default defineEventHandler(
   async (
@@ -38,6 +39,16 @@ export default defineEventHandler(
       event,
     );
     await setCachedProjects(owner, organization, projects);
+    await rememberOrganization(
+      owner,
+      {
+        id: organization,
+        name: organization,
+        slug: organization,
+        url: `https://dev.azure.com/${organization}`,
+      },
+      session.user || undefined,
+    );
 
     return { organization, projects };
   },

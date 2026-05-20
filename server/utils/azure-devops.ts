@@ -14,6 +14,7 @@ import {
   getAzureOAuthAccessToken,
 } from "./azure-auth";
 import { cacheWorkItemsForDashboard } from "./dashboard-metrics";
+import { getSessionCacheOwnerFromEvent } from "./project-cache";
 
 const API_VERSION = "7.1";
 const azureOrganizationStorage = new AsyncLocalStorage<string>();
@@ -314,6 +315,15 @@ export async function withAzureOrganization<T>(
   return normalized ?
       await azureOrganizationStorage.run(normalized, runWithEvent)
     : await runWithEvent();
+}
+
+export async function withAzureEvent<T>(
+  event: H3Event | undefined,
+  callback: () => Promise<T>,
+): Promise<T> {
+  return event ?
+      await azureEventStorage.run(event, callback)
+    : await callback();
 }
 
 export function getAzureConfig(): { organization: string } {
@@ -841,7 +851,14 @@ export async function listRecentWorkItems(
     project,
     wiql.workItems.slice(0, fetchLimit).map((item) => item.id),
   );
-  await cacheWorkItemsForDashboard(organization, project, items);
+  const owner = await getSessionCacheOwnerFromEvent(
+    azureEventStorage.getStore(),
+  );
+
+  if (owner) {
+    await cacheWorkItemsForDashboard(owner, organization, project, items);
+  }
+
   const filteredItems = applyWorkItemFilters(
     items,
     filters,
