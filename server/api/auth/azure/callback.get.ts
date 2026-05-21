@@ -68,16 +68,44 @@ export default defineEventHandler(async (event) => {
     });
   }
 
-  const connectionData = await $fetch<ConnectionDataResponse>(
-    getAzureDevOpsConnectionDataUrl(config.organization),
-    {
-      headers: {
-        Authorization: `Bearer ${tokens.access_token}`,
-        Accept: "application/json",
+  let authenticatedUser: ConnectionDataResponse["authenticatedUser"];
+
+  if (config.organization) {
+    const connectionData = await $fetch<ConnectionDataResponse>(
+      getAzureDevOpsConnectionDataUrl(config.organization),
+      {
+        headers: {
+          Authorization: `Bearer ${tokens.access_token}`,
+          Accept: "application/json",
+        },
       },
-    },
-  );
-  const authenticatedUser = connectionData.authenticatedUser;
+    );
+    authenticatedUser = connectionData.authenticatedUser;
+  } else {
+    // No org configured — fetch user profile from VSSPS instead
+    const profile = await $fetch<{
+      displayName?: string;
+      emailAddress?: string;
+      coreAttributes?: {
+        Avatar?: { value?: { value?: string } };
+      };
+    }>(
+      "https://app.vssps.visualstudio.com/_apis/profile/profiles/me?details=true&coreAttributes=Avatar&api-version=7.1-preview.3",
+      {
+        headers: {
+          Authorization: `Bearer ${tokens.access_token}`,
+          Accept: "application/json",
+        },
+      },
+    );
+    authenticatedUser = {
+      providerDisplayName: profile.displayName,
+      properties: {
+        Mail: { $value: profile.emailAddress },
+      },
+    };
+  }
+
   const email =
     authenticatedUser?.properties?.Mail?.$value ||
     authenticatedUser?.properties?.Account?.$value;

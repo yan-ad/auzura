@@ -28,8 +28,6 @@ MONGODB_URI=mongodb+srv://user:password@cluster.mongodb.net/auzura
 # MONGODB_DB=auzura
 NUXT_SESSION_PASSWORD=password-with-at-least-32-characters
 
-# Optional server-only org alias:
-# AZURE_DEVOPS_ORGANIZATION=your-org
 ```
 
 For production/Vercel, set `AZURE_REDIRECT_URI` to `https://auzura.vercel.app/api/auth/azure/callback` and configure the same redirect URI in the Microsoft Entra app registration.

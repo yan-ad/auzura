@@ -227,7 +227,9 @@ function workItemMatchesKeyword(item: AzureWorkItem, keyword: string): boolean {
     item.assignedTo,
     item.assignedToUniqueName,
     item.createdBy,
-    item.estimatedStoryPoints === undefined ? undefined : String(item.estimatedStoryPoints),
+    item.estimatedStoryPoints === undefined ?
+      undefined
+    : String(item.estimatedStoryPoints),
     item.effort === undefined ? undefined : String(item.effort),
     item.areaPath,
     item.iterationPath,
@@ -305,12 +307,11 @@ function getRuntimeConfig() {
   const runtimeGlobal = globalThis as typeof globalThis & {
     useRuntimeConfig?: () => {
       azureDevOpsOrganization?: unknown;
-      public?: { azureDevOpsOrganization?: unknown };
     };
   };
   return typeof runtimeGlobal.useRuntimeConfig === "function" ?
       runtimeGlobal.useRuntimeConfig()
-    : { public: {} };
+    : {};
 }
 
 export function getAzureOrganizationFromQuery(query: AzureQuery): string {
@@ -695,7 +696,8 @@ async function fetchWorkItemsByIds(
 
     const rawItems = getAzureCollectionItems(batch);
     const optionalFieldValues =
-      options.includeRelations ? new Map<number, Record<string, unknown>>()
+      options.includeRelations ?
+        new Map<number, Record<string, unknown>>()
       : await fetchOptionalEstimateFields(project, chunk);
 
     items.push(
@@ -731,7 +733,9 @@ async function fetchOptionalEstimateFields(
         ),
         {
           method: "POST",
-          body: buildWorkItemBatchBody(ids, { fields: ["System.Id", candidateField] }),
+          body: buildWorkItemBatchBody(ids, {
+            fields: ["System.Id", candidateField],
+          }),
         },
       );
 
@@ -782,7 +786,9 @@ export async function listOrganizations(): Promise<
     return [];
   }
 
-  const response = await azureFetch<AzureCollectionResponse<AzureAccountResponse>>(
+  const response = await azureFetch<
+    AzureCollectionResponse<AzureAccountResponse>
+  >(
     `https://app.vssps.visualstudio.com/_apis/accounts?memberId=${encodeURIComponent(memberId)}&api-version=7.1-preview.1`,
   );
 
@@ -814,7 +820,9 @@ export async function listOrganizations(): Promise<
 
 export async function listProjects(): Promise<AzureProject[]> {
   const { organization } = getAzureConfig();
-  const response = await azureFetch<AzureCollectionResponse<AzureProjectResponse>>(
+  const response = await azureFetch<
+    AzureCollectionResponse<AzureProjectResponse>
+  >(
     getOrganizationUrl(
       organization,
       `projects?api-version=${API_VERSION}&stateFilter=wellFormed`,
@@ -902,7 +910,9 @@ export async function listTeamSprints(
     return [];
   }
 
-  const response = await azureFetch<AzureCollectionResponse<AzureTeamIterationResponse>>(
+  const response = await azureFetch<
+    AzureCollectionResponse<AzureTeamIterationResponse>
+  >(
     `https://dev.azure.com/${organization}/${encodeURIComponent(project)}/${encodeURIComponent(team)}/_apis/work/teamsettings/iterations?api-version=${API_VERSION}`,
   );
 

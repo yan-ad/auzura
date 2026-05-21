@@ -7,11 +7,10 @@ type RuntimeOAuthConfig = {
   azureClientSecret?: unknown;
   azureRedirectUri?: unknown;
   azureDevOpsWebhookSecret?: unknown;
-  public?: { azureDevOpsOrganization?: unknown };
 };
 
 export type AzureDevOpsOAuthConfig = {
-  organization: string;
+  organization?: string;
   tenantId: string;
   clientId: string;
   clientSecret: string;
@@ -122,7 +121,6 @@ export function buildAzureDevOpsOAuthConfig(
   );
 
   const missing = [
-    !organization ? "AZURE_DEVOPS_ORGANIZATION" : "",
     !tenantId ? "AZURE_TENANT_ID" : "",
     !clientId ? "AZURE_CLIENT_ID" : "",
     !clientSecret ? "AZURE_CLIENT_SECRET" : "",
@@ -136,7 +134,7 @@ export function buildAzureDevOpsOAuthConfig(
   }
 
   return {
-    organization,
+    organization: organization || undefined,
     tenantId,
     clientId,
     clientSecret,

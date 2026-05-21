@@ -4,7 +4,6 @@ import { getCachedUser } from "../../utils/user-cache";
 
 type SettingsAboutResponse = {
   azureDevOps: {
-    configuredOrganization?: string;
     currentOrganization?: string;
     currentProject?: string;
   };
@@ -22,22 +21,12 @@ type SettingsAboutResponse = {
   };
 };
 
-function getRuntimeConfig() {
-  const runtimeGlobal = globalThis as typeof globalThis & {
-    useRuntimeConfig?: () => { public?: { azureDevOpsOrganization?: unknown } };
-  };
-  return typeof runtimeGlobal.useRuntimeConfig === "function" ?
-      runtimeGlobal.useRuntimeConfig()
-    : { public: {} };
-}
-
 export default defineEventHandler(
   async (event): Promise<SettingsAboutResponse> => {
     const query = getQuery(event);
     const owner = await getSessionCacheOwnerFromEvent(event);
     const cachedUser = owner ? await getCachedUser(owner.key) : null;
     const session = await getUserSession(event);
-    const runtimeConfig = getRuntimeConfig();
     const commit = String(
       process.env.VERCEL_GIT_COMMIT_SHA ||
         process.env.GIT_COMMIT_SHA ||
@@ -47,9 +36,6 @@ export default defineEventHandler(
 
     return {
       azureDevOps: {
-        configuredOrganization:
-          String(runtimeConfig.public?.azureDevOpsOrganization || "").trim() ||
-          undefined,
         currentOrganization:
           String(query.organization || "").trim() || undefined,
         currentProject: String(query.project || "").trim() || undefined,

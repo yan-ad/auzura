@@ -6,7 +6,6 @@ export default defineNuxtConfig({
   modules: ["@nuxt/ui", "nuxt-auth-utils", "@pinia/nuxt"],
   css: ["~/../assets/css/main.css"],
   runtimeConfig: {
-    azureDevOpsOrganization: process.env.AZURE_DEVOPS_ORGANIZATION || "",
     azureTenantId:
       process.env.NUXT_AZURE_TENANT_ID || process.env.AZURE_TENANT_ID || "",
     azureClientId:
