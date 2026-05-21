@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import IndexPage from '~/pages/index.vue'
+import WorkspaceView from "~/components/workspace/WorkspaceView.vue";
 </script>
 
 <template>
-  <IndexPage />
+  <WorkspaceView section="tasks" />
 </template>

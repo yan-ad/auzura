@@ -23,6 +23,10 @@ import type {
 
 type SectionView = ProjectSection;
 
+const props = defineProps<{
+  section?: SectionView;
+}>();
+
 const toast = useToast();
 const route = useRoute();
 const router = useRouter();
@@ -88,8 +92,11 @@ const routeProject = computed(() =>
 );
 const routeTeam = computed(() => getRouteParam(route.query.team));
 const routeSprint = computed(() => getRouteParam(route.query.sprint));
-const activeSection = computed<SectionView>(() =>
+const routeSection = computed<SectionView>(() =>
   getProjectSectionFromPath(route.path),
+);
+const activeSection = computed<SectionView>(
+  () => props.section || routeSection.value,
 );
 const isAssetRequestRoute = computed(() => isKnownAssetRequestPath(route.path));
 const routeProjectKey = computed(() =>
@@ -824,7 +831,12 @@ let boardRefreshTimer: ReturnType<typeof setTimeout> | undefined;
 watch(
   [boardUrl, canLoadAzure, activeSection, routeMatchesSelectedProject],
   ([, isLoggedIn, section, matches]) => {
-    if (!isLoggedIn || !activeProject.value || !matches || section !== "tasks") {
+    if (
+      !isLoggedIn ||
+      !activeProject.value ||
+      !matches ||
+      section !== "tasks"
+    ) {
       return;
     }
 

@@ -3,7 +3,7 @@ import { defineNuxtConfig } from "nuxt/config";
 export default defineNuxtConfig({
   compatibilityDate: "2025-11-01",
   devtools: { enabled: false },
-  modules: ["@nuxt/ui", "nuxt-auth-utils"],
+  modules: ["@nuxt/ui", "nuxt-auth-utils", "@pinia/nuxt"],
   css: ["~/../assets/css/main.css"],
   runtimeConfig: {
     azureDevOpsOrganization: process.env.AZURE_DEVOPS_ORGANIZATION || "",

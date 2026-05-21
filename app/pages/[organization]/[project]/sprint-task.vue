@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import IndexPage from "~/pages/index.vue";
+import SprintTaskSection from "~/components/workspace/SprintTaskSection.vue";
 </script>
 
 <template>
-  <IndexPage />
+  <SprintTaskSection />
 </template>

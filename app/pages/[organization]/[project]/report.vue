@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import IndexPage from "~/pages/index.vue";
+import ReportSection from "~/components/workspace/ReportSection.vue";
 </script>
 
 <template>
-  <IndexPage />
+  <ReportSection />
 </template>
