@@ -7,6 +7,7 @@ import {
   buildProjectSectionRoute,
   getProjectSectionFromPath,
   getRouteProjectParams,
+  isKnownAssetRequestPath,
   isProjectRoute,
   normalizeRouteProjectName,
   type ProjectSection,
@@ -15,7 +16,6 @@ import {
 type SectionView = ProjectSection;
 
 const route = useRoute();
-const router = useRouter();
 const selectedOrganization = useCookie<string>("auzura:organization", {
   default: () => "",
 });
@@ -58,12 +58,13 @@ function withOrganizationQuery(path: string) {
 const routeProjectParams = computed(() => getRouteProjectParams(route.path));
 const routeOrganization = computed(
   () =>
-    routeProjectParams.value.organization ||
+    (isAssetRequestRoute.value ? "" : routeProjectParams.value.organization) ||
     getRouteParam(route.params.organization),
 );
 const routeProject = computed(() =>
   normalizeRouteProjectName(
-    routeProjectParams.value.project || getRouteParam(route.params.project),
+    (isAssetRequestRoute.value ? "" : routeProjectParams.value.project) ||
+      getRouteParam(route.params.project),
   ),
 );
 const routeTeam = computed(() => getRouteParam(route.query.team));
@@ -71,21 +72,55 @@ const routeSprint = computed(() => getRouteParam(route.query.sprint));
 const activeSection = computed<SectionView>(() =>
   getProjectSectionFromPath(route.path),
 );
+const isAssetRequestRoute = computed(() => isKnownAssetRequestPath(route.path));
 const isGlobalSettingsRoute = computed(() => route.path === "/settings");
 
 watch(
   [routeOrganization, routeProject, routeTeam, routeSprint],
   ([organization, project, team, sprint]) => {
+    if (isAssetRequestRoute.value) return;
+
     if (organization && organization !== activeOrganization.value)
       selectedOrganization.value = organization;
     if (project && project !== selectedProject.value)
       selectedProject.value = project;
-    if (team && team !== selectedTeam.value) selectedTeam.value = team;
-    if (sprint && sprint !== selectedSprintPath.value)
-      selectedSprintPath.value = sprint;
+
+    if (isProjectRoute(route.path)) {
+      const normalizedTeam = team || "";
+      const normalizedSprint = sprint || "";
+
+      if (normalizedTeam !== selectedTeam.value) {
+        selectedTeam.value = normalizedTeam;
+      }
+
+      if (normalizedSprint !== selectedSprintPath.value) {
+        selectedSprintPath.value = normalizedSprint;
+      }
+    }
   },
   { immediate: true },
 );
+
+function hasSameQuery(
+  left: Record<string, unknown>,
+  right: Record<string, string>,
+): boolean {
+  const leftEntries = Object.entries(left)
+    .filter(([, value]) => typeof value === "string" && String(value).trim())
+    .map(([key, value]) => [key, String(value)] as const)
+    .sort(([a], [b]) => a.localeCompare(b));
+
+  const rightEntries = Object.entries(right)
+    .filter(([, value]) => String(value).trim())
+    .sort(([a], [b]) => a.localeCompare(b));
+
+  if (leftEntries.length !== rightEntries.length) return false;
+
+  return leftEntries.every(([key, value], index) => {
+    const [targetKey, targetValue] = rightEntries[index] || [];
+    return key === targetKey && value === targetValue;
+  });
+}
 
 watch(
   [activeOrganization, selectedProject],
@@ -102,8 +137,15 @@ watch(
         sprint: selectedSprintPath.value,
       },
     );
-    if (isProjectRoute(route.path) && route.path !== targetRoute.path) {
-      await router.replace(targetRoute);
+
+    if (!isProjectRoute(route.path)) return;
+
+    const shouldNavigate =
+      route.path !== targetRoute.path ||
+      !hasSameQuery(route.query, targetRoute.query);
+
+    if (shouldNavigate) {
+      await navigateTo(targetRoute, { replace: true });
     }
   },
 );
@@ -297,7 +339,12 @@ const organizationProjectMenuItems = computed<DropdownMenuItem[][]>(() => [
 
 function getSectionRoute(
   section: SectionView,
-  selection: { project?: string; team?: string; sprint?: string; resetSprint?: boolean } = {},
+  selection: {
+    project?: string;
+    team?: string;
+    sprint?: string;
+    resetSprint?: boolean;
+  } = {},
 ) {
   if (section === "settings") {
     return "/settings";
@@ -344,7 +391,9 @@ const viewNavigation = computed<NavigationMenuItem[][]>(() => {
         to: getSectionRoute("sprint-task", {
           project: group.project,
           team: team.name,
-          resetSprint: group.project !== selectedProject.value || team.name !== selectedTeam.value,
+          resetSprint:
+            group.project !== selectedProject.value ||
+            team.name !== selectedTeam.value,
         }),
       });
     }

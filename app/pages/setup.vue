@@ -11,21 +11,42 @@ const selectedOrganization = useCookie<string>("auzura:organization", {
 const selectedProject = useCookie<string>("auzura:selected-project", {
   default: () => "",
 });
-const organization = ref(selectedOrganization.value || "");
+const form = reactive({
+  organization: selectedOrganization.value || "",
+});
 const busy = ref(false);
 const { loggedIn } = useUserSession();
+
+function getWorkspaceTargetPath(
+  organizationSlug: string,
+  projectName?: string,
+) {
+  const organization = organizationSlug.trim();
+  const project = String(projectName || "").trim();
+
+  if (!organization) return "/setup";
+  if (!project) return `/${encodeURIComponent(organization)}`;
+
+  return `/${encodeURIComponent(organization)}/${encodeURIComponent(project)}/tasks`;
+}
+
+async function redirectIfWorkspaceReady() {
+  const organizationSlug = selectedOrganization.value.trim();
+  const projectName = selectedProject.value.trim();
+  if (!organizationSlug || !projectName) return;
+
+  const target = getWorkspaceTargetPath(organizationSlug, projectName);
+  if (router.currentRoute.value.path !== target) {
+    await router.replace(target);
+  }
+}
 
 const {
   data: organizationsData,
   pending: organizationsPending,
   refresh: refreshOrganizations,
-} = await useFetch<{ organizations: AzureOrganization[] }>(
-  "/api/azure/organizations",
-  {
-    immediate: false,
-    watch: false,
-    default: () => ({ organizations: [] }),
-  },
+} = await useAsyncData("azure-organizations", () =>
+  $fetch<{ organizations: AzureOrganization[] }>("/api/azure/organizations"),
 );
 
 const organizationOptions = computed(() =>
@@ -38,9 +59,22 @@ const defaultOrganization = computed(() =>
   (organizationsData.value?.organizations ?? []).find((item) => item.isDefault),
 );
 
-async function refreshOrganizationOptions() {
-  await refreshOrganizations();
-}
+watch(
+  [organizationOptions, defaultOrganization],
+  ([options, defaultOrg]) => {
+    if (!options.length) return;
+
+    const current = form.organization.trim();
+    if (current && options.includes(current)) return;
+
+    const fallback = defaultOrg?.slug || options[0] || "";
+    if (!fallback) return;
+
+    form.organization = fallback;
+    selectedOrganization.value = fallback;
+  },
+  { immediate: true },
+);
 
 watch(
   loggedIn,
@@ -51,23 +85,14 @@ watch(
   { immediate: true },
 );
 
-watch(
-  [selectedOrganization, selectedProject],
-  async ([organizationValue, projectValue]) => {
-    const organizationSlug = organizationValue.trim();
-    const projectName = projectValue.trim();
-    if (!organizationSlug || !projectName) return;
-
-    const target = `/${encodeURIComponent(organizationSlug)}/${encodeURIComponent(projectName)}/tasks`;
-    if (router.currentRoute.value.path !== target) {
-      await router.replace(target);
-    }
-  },
-  { immediate: true },
-);
+onMounted(async () => {
+  await redirectIfWorkspaceReady();
+});
 
 async function submitSetup() {
-  if (!organization.value.trim()) {
+  const organization = form.organization.trim();
+
+  if (!organization) {
     toast.add({ title: "Organization is required", color: "warning" });
     return;
   }
@@ -85,16 +110,16 @@ async function submitSetup() {
       projects: Array<{ name: string }>;
     }>("/api/azure/setup", {
       method: "POST",
-      body: { organization: organization.value.trim() },
+      body: { organization },
     });
 
     selectedOrganization.value = response.organization;
     selectedProject.value = response.projects[0]?.name || "";
 
-    const target =
-      selectedProject.value ?
-        `/${encodeURIComponent(selectedOrganization.value)}/${encodeURIComponent(selectedProject.value)}/tasks`
-      : `/${encodeURIComponent(selectedOrganization.value)}`;
+    const target = getWorkspaceTargetPath(
+      selectedOrganization.value,
+      selectedProject.value,
+    );
 
     await router.replace(target);
   } catch (error) {
@@ -122,8 +147,9 @@ async function submitSetup() {
         </div>
       </template>
 
-      <div class="space-y-4">
+      <UForm :state="form" class="space-y-4" @submit="submitSetup">
         <UFormField
+          name="organization"
           label="Organization"
           required
           :help="
@@ -132,22 +158,28 @@ async function submitSetup() {
             : 'No organizations loaded yet. You can still enter the slug manually.'
           "
         >
-          <USelectMenu
-            v-if="hasOrganizationOptions"
-            v-model="organization"
-            :items="organizationOptions"
-            :loading="organizationsPending"
-            icon="i-lucide-building-2"
-            placeholder="Select organization"
-            searchable
-          />
-          <UInput
-            v-else
-            v-model="organization"
-            :loading="organizationsPending"
-            icon="i-lucide-building-2"
-            placeholder="your-azure-org"
-          />
+          <div class="flex gap-1 items-start">
+            <USelectMenu
+              v-if="hasOrganizationOptions"
+              v-model="form.organization"
+              :items="organizationOptions"
+              :loading="organizationsPending"
+              icon="i-lucide-building-2"
+              class="flex-1"
+              placeholder="Select organization"
+              searchable
+              size="lg"
+            />
+            <UInput
+              v-else
+              v-model="form.organization"
+              :loading="organizationsPending"
+              icon="i-lucide-building-2"
+              class="flex-1"
+              placeholder="your-azure-org"
+              size="lg"
+            />
+          </div>
         </UFormField>
 
         <div
@@ -160,21 +192,10 @@ async function submitSetup() {
           </span>
         </div>
 
-        <UButton
-          v-if="loggedIn"
-          color="neutral"
-          variant="ghost"
-          block
-          :loading="organizationsPending"
-          @click="refreshOrganizationOptions"
-        >
-          Refresh organizations
-        </UButton>
-
-        <UButton color="primary" block :loading="busy" @click="submitSetup">
+        <UButton color="primary" block :loading="busy" type="submit">
           Save and continue
         </UButton>
-      </div>
+      </UForm>
     </UCard>
   </div>
 </template>

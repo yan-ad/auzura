@@ -6,7 +6,13 @@ const PROJECT_SECTION_SEGMENTS = new Set<ProjectSection>([
   "sprint-task",
   "settings",
 ]);
-const IGNORED_ASSET_SEGMENTS = new Set(["installHook.js.map"]);
+const IGNORED_ASSET_SEGMENTS = new Set([
+  "installHook.js.map",
+  "sw.js",
+  "favicon.ico",
+  "robots.txt",
+  "manifest.webmanifest",
+]);
 
 function safelyDecodePathSegment(segment: string): string {
   let value = segment.trim();
@@ -25,11 +31,13 @@ function safelyDecodePathSegment(segment: string): string {
 }
 
 function getPathSegments(path: string): string[] {
-  return path
-    .split("?")[0]
-    ?.split("/")
-    .map(safelyDecodePathSegment)
-    .filter(Boolean) ?? [];
+  return (
+    path
+      .split("?")[0]
+      ?.split("/")
+      .map(safelyDecodePathSegment)
+      .filter(Boolean) ?? []
+  );
 }
 
 export function normalizeRouteProjectName(project: string): string {
@@ -52,14 +60,20 @@ export function getRouteProjectParams(path: string): {
   const segments = getPathSegments(path);
   const [organization = "", project = ""] = segments;
   return {
-    organization: PROJECT_SECTION_SEGMENTS.has(organization as ProjectSection) ? "" : organization,
-    project: PROJECT_SECTION_SEGMENTS.has(project as ProjectSection) ? "" : project,
+    organization:
+      PROJECT_SECTION_SEGMENTS.has(organization as ProjectSection) ? "" : (
+        organization
+      ),
+    project:
+      PROJECT_SECTION_SEGMENTS.has(project as ProjectSection) ? "" : project,
   };
 }
 
 export function getProjectSectionFromPath(path: string): ProjectSection {
   const segments = getPathSegments(path);
-  const lastSegment = segments[segments.length - 1] as ProjectSection | undefined;
+  const lastSegment = segments[segments.length - 1] as
+    | ProjectSection
+    | undefined;
 
   if (lastSegment && PROJECT_SECTION_SEGMENTS.has(lastSegment)) {
     return lastSegment;
@@ -83,25 +97,26 @@ export function buildProjectSectionPath(
 }
 
 export function isProjectRoute(path: string): boolean {
-  const { organization, project } = getRouteProjectParams(path)
-  return Boolean(organization && project)
+  const { organization, project } = getRouteProjectParams(path);
+  return Boolean(organization && project);
 }
 
 export function buildProjectStateQuery(
   currentQuery: Record<string, unknown>,
-  selection: { team?: string; sprint?: string; resetSprint?: boolean }
+  selection: { team?: string; sprint?: string; resetSprint?: boolean },
 ): Record<string, string> {
-  const query: Record<string, string> = {}
+  const query: Record<string, string> = {};
 
   for (const [key, value] of Object.entries(currentQuery)) {
-    if (key === 'team' || key === 'sprint') continue
-    if (typeof value === 'string') query[key] = value
+    if (key === "team" || key === "sprint") continue;
+    if (typeof value === "string") query[key] = value;
   }
 
-  if (selection.team?.trim()) query.team = selection.team.trim()
-  if (!selection.resetSprint && selection.sprint?.trim()) query.sprint = selection.sprint.trim()
+  if (selection.team?.trim()) query.team = selection.team.trim();
+  if (!selection.resetSprint && selection.sprint?.trim())
+    query.sprint = selection.sprint.trim();
 
-  return query
+  return query;
 }
 
 export function buildProjectSectionRoute(
@@ -114,5 +129,5 @@ export function buildProjectSectionRoute(
   return {
     path: buildProjectSectionPath(organization, project, section),
     query: buildProjectStateQuery(currentQuery, selection),
-  }
+  };
 }

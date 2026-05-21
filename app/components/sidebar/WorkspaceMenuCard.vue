@@ -6,6 +6,22 @@ const props = defineProps<{
   items: DropdownMenuItem[][];
   collapsed?: boolean;
 }>();
+
+const organizationInitials = computed(() => {
+  const source = String(props.activeOrganization || "").trim();
+  if (!source) return "--";
+
+  const words = source
+    .split(/[^A-Za-z0-9]+/)
+    .map((word) => word.trim())
+    .filter(Boolean);
+
+  if (words.length >= 2) {
+    return `${words[0]?.[0] || ""}${words[1]?.[0] || ""}`.toUpperCase();
+  }
+
+  return source.slice(0, 2).toUpperCase();
+});
 </script>
 
 <template>
@@ -17,10 +33,7 @@ const props = defineProps<{
     }"
   >
     <UButton
-      v-bind="{
-        label: collapsed ? undefined : activeOrganization,
-        trailingIcon: collapsed ? undefined : 'i-lucide-chevrons-up-down',
-      }"
+      :trailing-icon="collapsed ? undefined : 'i-lucide-chevrons-up-down'"
       color="neutral"
       variant="ghost"
       block
@@ -30,6 +43,13 @@ const props = defineProps<{
       :ui="{
         trailingIcon: 'text-dimmed',
       }"
-    />
+    >
+      <span
+        class="inline-flex size-6 shrink-0 items-center justify-center rounded-md bg-primary/15 text-[11px] font-semibold text-primary"
+      >
+        {{ organizationInitials }}
+      </span>
+      <span v-if="!collapsed" class="truncate">{{ activeOrganization }}</span>
+    </UButton>
   </UDropdownMenu>
 </template>

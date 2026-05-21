@@ -1,7 +1,11 @@
-import { attachDatabasePool } from "@vercel/functions";
-import { MongoClient, type Collection, type Db } from "mongodb";
+import type { Collection } from "mongodb";
 import type { AzureOrganization } from "../../app/types/azure-devops";
 import type { AzureAuthSessionUser } from "./azure-auth";
+import {
+  getMongoDatabase,
+  tryMongoCache,
+  tryWriteMongoCache,
+} from "./cache-storage";
 import type { CacheOwner } from "./project-cache";
 
 export type CachedUserDocument = {
@@ -18,59 +22,53 @@ export type CachedUserDocument = {
   updatedAt: Date;
 };
 
-let mongoClient: MongoClient | undefined;
-let mongoClientPromise: Promise<MongoClient> | undefined;
+let indexesInitialized = false;
 
-function getRuntimeConfig() {
-  const runtimeGlobal = globalThis as typeof globalThis & {
-    useRuntimeConfig?: () => { mongodbUri?: unknown; mongodbDb?: unknown };
-  };
-  return typeof runtimeGlobal.useRuntimeConfig === "function" ?
-      runtimeGlobal.useRuntimeConfig()
-    : {};
-}
+function isIndexPermissionError(error: unknown): boolean {
+  if (typeof error !== "object" || !error) return false;
 
-function getMongoUri(): string {
-  const config = getRuntimeConfig();
-  const uri = String(config.mongodbUri || process.env.MONGODB_URI || "").trim();
+  const code = "code" in error ? Number(error.code) : undefined;
+  const message =
+    "message" in error && typeof error.message === "string" ?
+      error.message.toLowerCase()
+    : "";
 
-  if (!uri) {
-    throw new Error("MONGODB_URI is required for user cache.");
-  }
+  if (code === 13 || code === 18) return true;
 
-  return uri;
-}
-
-function getDatabaseName(): string {
-  const config = getRuntimeConfig();
   return (
-    String(config.mongodbDb || process.env.MONGODB_DB || "auzura").trim() ||
-    "auzura"
+    message.includes("requires authentication") ||
+    message.includes("not authorized") ||
+    message.includes("unauthorized") ||
+    message.includes("createindexes")
   );
 }
 
-function getMongoClient(): Promise<MongoClient> {
-  if (mongoClientPromise) return mongoClientPromise;
+async function ensureIndexes(collection: Collection<CachedUserDocument>) {
+  if (indexesInitialized) return;
 
-  mongoClient = new MongoClient(getMongoUri());
-  attachDatabasePool(mongoClient);
-  mongoClientPromise = mongoClient.connect();
+  try {
+    await collection.createIndex({ userKey: 1 }, { unique: true });
+    await collection.createIndex({ updatedAt: -1 });
+    await collection.createIndex({ "organizations.slug": 1 });
+  } catch (error) {
+    if (!isIndexPermissionError(error)) {
+      throw error;
+    }
 
-  return mongoClientPromise;
-}
+    console.warn(
+      "Skipping user cache index creation due to Mongo permissions.",
+      error,
+    );
+  }
 
-async function getDatabase(): Promise<Db> {
-  const client = await getMongoClient();
-  return client.db(getDatabaseName());
+  indexesInitialized = true;
 }
 
 async function getCollection(): Promise<Collection<CachedUserDocument>> {
-  const db = await getDatabase();
+  const db = await getMongoDatabase();
   const collection = db.collection<CachedUserDocument>("user_cache");
 
-  await collection.createIndex({ userKey: 1 }, { unique: true });
-  await collection.createIndex({ updatedAt: -1 });
-  await collection.createIndex({ "organizations.slug": 1 });
+  await ensureIndexes(collection);
 
   return collection;
 }
@@ -109,8 +107,11 @@ export async function getCachedUser(
   userKey: string,
 ): Promise<CachedUserDocument | null> {
   if (!userKey) return null;
-  const collection = await getCollection();
-  return await collection.findOne({ userKey });
+
+  return await tryMongoCache(async () => {
+    const collection = await getCollection();
+    return await collection.findOne({ userKey });
+  }, null);
 }
 
 export async function getCachedOrganizations(
@@ -133,41 +134,44 @@ export async function upsertCachedUser(input: {
 }): Promise<void> {
   if (!input.owner.key) return;
 
-  const collection = await getCollection();
-  const current = await collection.findOne({ userKey: input.owner.key });
-  const organizations = mergeOrganizations(
-    current?.organizations ?? [],
-    input.organizations ?? [],
-    input.defaultOrganizationSlug || current?.defaultOrganizationSlug,
-  );
-  const defaultOrganizationSlug =
-    input.defaultOrganizationSlug ||
-    current?.defaultOrganizationSlug ||
-    organizations.find((organization) => organization.isDefault)?.slug;
+  await tryWriteMongoCache(async () => {
+    const collection = await getCollection();
+    const current = await collection.findOne({ userKey: input.owner.key });
+    const organizations = mergeOrganizations(
+      current?.organizations ?? [],
+      input.organizations ?? [],
+      input.defaultOrganizationSlug || current?.defaultOrganizationSlug,
+    );
+    const defaultOrganizationSlug =
+      input.defaultOrganizationSlug ||
+      current?.defaultOrganizationSlug ||
+      organizations.find((organization) => organization.isDefault)?.slug;
 
-  await collection.updateOne(
-    { userKey: input.owner.key },
-    {
-      $set: {
-        userKey: input.owner.key,
-        owner: input.owner,
-        user: {
-          displayName:
-            input.user.displayName ||
-            current?.user?.displayName ||
-            input.owner.displayName,
-          email: input.user.email || current?.user?.email || input.owner.email,
-          image: input.user.image || current?.user?.image,
+    await collection.updateOne(
+      { userKey: input.owner.key },
+      {
+        $set: {
+          userKey: input.owner.key,
+          owner: input.owner,
+          user: {
+            displayName:
+              input.user.displayName ||
+              current?.user?.displayName ||
+              input.owner.displayName,
+            email:
+              input.user.email || current?.user?.email || input.owner.email,
+            image: input.user.image || current?.user?.image,
+          },
+          organizations,
+          defaultOrganizationSlug,
+          token: input.token || current?.token,
+          lastLoginAt: input.lastLoginAt || current?.lastLoginAt,
+          updatedAt: new Date(),
         },
-        organizations,
-        defaultOrganizationSlug,
-        token: input.token || current?.token,
-        lastLoginAt: input.lastLoginAt || current?.lastLoginAt,
-        updatedAt: new Date(),
       },
-    },
-    { upsert: true },
-  );
+      { upsert: true },
+    );
+  });
 }
 
 export async function rememberOrganization(
@@ -231,8 +235,10 @@ export async function setDefaultOrganization(
 export async function purgeCachedUser(userKey: string): Promise<number> {
   if (!userKey) return 0;
 
-  const collection = await getCollection();
-  const result = await collection.deleteOne({ userKey });
+  return await tryMongoCache(async () => {
+    const collection = await getCollection();
+    const result = await collection.deleteOne({ userKey });
 
-  return result.deletedCount;
+    return result.deletedCount;
+  }, 0);
 }
