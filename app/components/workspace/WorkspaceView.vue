@@ -824,12 +824,7 @@ let boardRefreshTimer: ReturnType<typeof setTimeout> | undefined;
 watch(
   [boardUrl, canLoadAzure, activeSection, routeMatchesSelectedProject],
   ([, isLoggedIn, section, matches]) => {
-    if (
-      !isLoggedIn ||
-      !activeProject.value ||
-      !matches ||
-      section !== "tasks"
-    ) {
+    if (!isLoggedIn || !activeProject.value || !matches || section !== "tasks") {
       return;
     }
 
